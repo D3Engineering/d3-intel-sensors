@@ -1,0 +1,33 @@
+From 8d7c4c1b689541a72ad7637ed3bdfb44e0ef7d67 Mon Sep 17 00:00:00 2001
+From: Josh Watts <jwatts@d3engineering.com>
+Date: Thu, 19 Oct 2023 10:15:56 -0400
+Subject: [PATCH 04/10] media: i2c: ti960:  Increase post-reset delay to 500ms
+
+---
+ drivers/media/i2c/ti960-des.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/ti960-des.c b/drivers/media/i2c/ti960-des.c
+index abf40270f258..2df16529f0de 100644
+--- a/drivers/media/i2c/ti960-des.c
++++ b/drivers/media/i2c/ti960-des.c
+@@ -662,6 +662,7 @@ static int gpio_exp_reset_sensor(struct i2c_client *client, int reset)
+ 	msleep(50);
+ 	gpio_out |= (1u << reset);
+ 	i2c_smbus_write_byte_data(client, 0x01, gpio_out);
++	msleep(500);
+ 
+ 	return 0;
+ }
+@@ -685,7 +686,7 @@ static int ti953_reset_sensor(struct i2c_client *client, int reset)
+ 	gpio_data |= TI953_GPIO0_OUT << reset;
+ 	ti953_reg_write(client, TI953_LOCAL_GPIO_DATA,
+ 			gpio_data);
+-	msleep(50);
++	msleep(500);
+ 
+ 	return 0;
+ }
+-- 
+2.42.0
+

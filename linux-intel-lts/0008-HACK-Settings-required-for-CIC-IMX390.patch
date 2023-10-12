@@ -1,0 +1,49 @@
+From 879052fb40f935aa42876dfd925f19397b63a060 Mon Sep 17 00:00:00 2001
+From: Josh Watts <jwatts@d3engineering.com>
+Date: Wed, 11 Oct 2023 09:24:49 -0400
+Subject: [PATCH 08/10] HACK: Settings "required" for CIC+IMX390?
+
+---
+ drivers/media/platform/intel/ipu6-acpi-common.c | 5 +++++
+ drivers/media/platform/intel/ipu6-acpi-pdata.c  | 4 ++--
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/platform/intel/ipu6-acpi-common.c b/drivers/media/platform/intel/ipu6-acpi-common.c
+index d07dc97fadcf..f8faba632ea2 100644
+--- a/drivers/media/platform/intel/ipu6-acpi-common.c
++++ b/drivers/media/platform/intel/ipu6-acpi-common.c
+@@ -333,8 +333,13 @@ int ipu_acpi_get_cam_data(struct device *dev,
+ 	/* Xshutdown is not part of the ssdb data */
+ 	sensor->link = sensor_data.link;
+ 	sensor->lanes = sensor_data.lanes;
++#if 1 // HACK
++	sensor->pprval = 4;
++	sensor->pprunit = 4;
++#else
+ 	sensor->pprval = sensor_data.pprval;
+ 	sensor->pprunit = sensor_data.pprunit;
++#endif
+ 
+ 	dev_dbg(dev, "sensor ACPI data: name %s link %d, lanes %d pprval %d pprunit %x",
+ 		dev_name(dev), sensor->link, sensor->lanes, sensor->pprval, sensor->pprunit);
+diff --git a/drivers/media/platform/intel/ipu6-acpi-pdata.c b/drivers/media/platform/intel/ipu6-acpi-pdata.c
+index 192ce9181232..43e92267cfda 100644
+--- a/drivers/media/platform/intel/ipu6-acpi-pdata.c
++++ b/drivers/media/platform/intel/ipu6-acpi-pdata.c
+@@ -563,11 +563,11 @@ void set_serdes_sd_pdata(struct serdes_module_pdata **module_pdata, char sensor_
+ 	/* TI960 and IMX390 specific */
+ 	if (!strcmp(sensor_name, IMX390_NAME)) {
+ 		(*module_pdata)->gpio_powerup_seq[0] = 0;
+-		(*module_pdata)->gpio_powerup_seq[1] = 0x9;
++		(*module_pdata)->gpio_powerup_seq[1] = 0xa;
+ 		(*module_pdata)->gpio_powerup_seq[2] = -1;
+ 		(*module_pdata)->gpio_powerup_seq[3] = -1;
+ 		(*module_pdata)->module_flags = TI960_FL_POWERUP | TI960_FL_INIT_SER_CLK;
+-		(*module_pdata)->fsin = 3;
++		(*module_pdata)->fsin = 0;
+ 	}
+ }
+ 
+-- 
+2.42.0
+

@@ -1,0 +1,57 @@
+From e1a1569b8c1e4a4c039935223c1a9066fd661ffd Mon Sep 17 00:00:00 2001
+From: Josh Watts <jwatts@d3engineering.com>
+Date: Thu, 12 Oct 2023 09:07:39 -0400
+Subject: [PATCH 07/10] media: i2c: imx390: Wait for up to 500ms for sensor to
+ wake
+
+---
+ drivers/media/i2c/imx390.c | 21 ++++++++++-----------
+ 1 file changed, 10 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/media/i2c/imx390.c b/drivers/media/i2c/imx390.c
+index b4e5141278b6..04013d8a3034 100644
+--- a/drivers/media/i2c/imx390.c
++++ b/drivers/media/i2c/imx390.c
+@@ -26,7 +26,6 @@
+ #define IMX390_REG_VALUE_16BIT		2
+ 
+ #define IMX390_REG_CHIP_ID		0x0330
+-#define IMX390_CHIP_ID			0x0
+ 
+ /* vertical-timings from sensor */
+ #define IMX390_REG_VTS			0x300A
+@@ -1876,21 +1875,21 @@ static int imx390_identify_module(struct imx390 *imx390)
+ {
+ 	struct i2c_client *client = v4l2_get_subdevdata(&imx390->sd);
+ 	int ret;
++	int tries = 50;
+ 	u32 val;
+ 
+-	ret = imx390_read_reg(imx390, IMX390_REG_CHIP_ID,
+-			      IMX390_REG_VALUE_08BIT, &val);
++	while (tries--) {
++		ret = imx390_read_reg(imx390, IMX390_REG_CHIP_ID,
++				      IMX390_REG_VALUE_16BIT, &val);
++		if (ret == 0)
++			break;
++		msleep(10);
++	}
++
+ 	if (ret)
+ 		return ret;
+ 
+-	return 0;
+-
+-	/* chip id not known yet */
+-	if (val != IMX390_CHIP_ID) {
+-		dev_err(&client->dev, "chip id mismatch: %x!=%x",
+-			IMX390_CHIP_ID, val);
+-		return -ENXIO;
+-	}
++	dev_info(&client->dev, "chip id: %04x", val);
+ 
+ 	return 0;
+ }
+-- 
+2.42.0
+

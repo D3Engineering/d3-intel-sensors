@@ -1,0 +1,1449 @@
+From 32349536560ab557a1351cfa0e2b65ddbe85c17a Mon Sep 17 00:00:00 2001
+From: Josh Watts <jwatts@d3engineering.com>
+Date: Tue, 19 Sep 2023 10:47:56 -0400
+Subject: [PATCH 01/10] media: i2c: add ISX031 driver
+
+---
+ drivers/media/i2c/Kconfig            |   11 +
+ drivers/media/i2c/Makefile           |    1 +
+ drivers/media/i2c/isx031.c           | 1218 ++++++++++++++++++++++++++
+ drivers/media/i2c/isx031_registers.h |  135 +++
+ include/media/isx031.h               |   24 +
+ 5 files changed, 1389 insertions(+)
+ create mode 100644 drivers/media/i2c/isx031.c
+ create mode 100644 drivers/media/i2c/isx031_registers.h
+ create mode 100644 include/media/isx031.h
+
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index d27bbdb7d1bf..2c58347727c4 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -883,6 +883,17 @@ config VIDEO_IMX412
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called imx412.
+ 
++config VIDEO_ISX031
++	tristate "Sony ISX031 sensor support"
++	depends on I2C && VIDEO_V4L2 && VIDEO_V4L2_SUBDEV_API
++	depends on MEDIA_CAMERA_SUPPORT
++	help
++	  This is a Video4Linux2 sensor driver for the Sony
++	  ISX031 camera.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called imx412.
++
+ config VIDEO_OV02A10
+ 	tristate "OmniVision OV01A10 sensor support"
+ 	depends on VIDEO_V4L2 && I2C
+diff --git a/drivers/media/i2c/Makefile b/drivers/media/i2c/Makefile
+index e0f5d780483d..cc2ad89be36f 100644
+--- a/drivers/media/i2c/Makefile
++++ b/drivers/media/i2c/Makefile
+@@ -128,6 +128,7 @@ obj-$(CONFIG_VIDEO_IMX334)	+= imx334.o
+ obj-$(CONFIG_VIDEO_IMX335)	+= imx335.o
+ obj-$(CONFIG_VIDEO_IMX355)	+= imx355.o
+ obj-$(CONFIG_VIDEO_IMX412)	+= imx412.o
++obj-$(CONFIG_VIDEO_ISX031)	+= isx031.o
+ obj-$(CONFIG_VIDEO_MAX9286)	+= max9286.o
+ obj-$(CONFIG_VIDEO_MAX9271_LIB)	+= max9271.o
+ obj-$(CONFIG_VIDEO_RDACM20)	+= rdacm20.o
+diff --git a/drivers/media/i2c/isx031.c b/drivers/media/i2c/isx031.c
+new file mode 100644
+index 000000000000..d6254b7dfd58
+--- /dev/null
++++ b/drivers/media/i2c/isx031.c
+@@ -0,0 +1,1218 @@
++// SPDX-License-Identifier: GPL-2.0
++// Copyright (C) 2023 Define Design Deploy Corp. All Rights Reserved.
++
++#include <asm/unaligned.h>
++#include <linux/delay.h>
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/pm_runtime.h>
++#include <linux/gpio.h>
++#include <linux/version.h>
++#include <linux/interrupt.h>
++#include <media/v4l2-ctrls.h>
++#include <media/v4l2-device.h>
++#include <media/v4l2-fwnode.h>
++#include <media/isx031.h>
++#include <linux/version.h>
++#include "isx031_registers.h"
++
++#include <linux/ipu-isys.h>
++
++#define ISX031_REG_VALUE_08BIT		1
++#define ISX031_REG_VALUE_16BIT		2
++#define ISX031_REG_VALUE_32BIT		4
++
++#define ISX031_LINK_FREQ_360MHZ		360000000ULL
++
++#define FSERIAL_CLK_4_LANE		240000000ULL //TODO
++#define FSERIAL_CLK_2_LANE		180000000ULL /* use as pixel rate */
++
++#define PIX_CLK_4_LANE			60000000ULL //TODO
++#define PIX_CLK_2_LANE			45000000ULL
++
++#define ISX031_CID_FPS				(V4L2_CID_USER_BASE | 0x1001)
++#define ISX031_CID_FRAME_INTERVAL	(V4L2_CID_USER_BASE | 0x1002)
++
++#define TRACE_ISX031(o) do { \
++		struct i2c_client *TRACE_client = v4l2_get_subdevdata(&isx031->sd); \
++		dev_dbg(&TRACE_client->dev, "%s:%d", __func__, __LINE__); \
++} while(0)
++
++struct isx031_mode {
++	/* mode value */
++	u32 mode;
++
++	/* Frame width in pixels */
++	u32 width;
++
++	/* Frame height in pixels */
++	u32 height;
++
++	/* Link frequency needed for this resolution */
++	u32 link_freq_index;
++
++	/* MEDIA_BUS_FMT */
++	u32 code;
++
++	/* MIPI_LANES */
++	s32 lanes;
++
++	/* MODE_FPS*/
++	u32 fps;
++
++	/* bit per pixel */
++	u32 bpp;
++
++};
++
++static const s64 link_freq_menu_items[] = {
++	ISX031_LINK_FREQ_360MHZ,
++};
++
++static const struct isx031_mode supported_modes[] = {
++	{
++		.mode = ISX031_MODE_1920x1536_60_4LANE,
++		.width = 1920,
++		.height = 1536,
++		.code = MEDIA_BUS_FMT_UYVY8_1X16,
++		.lanes = 4,
++		.fps = 60,
++		.bpp = 8,
++	},
++	{
++		.mode = ISX031_MODE_1920x1536_30_4LANE,
++		.width = 1920,
++		.height = 1536,
++		.code = MEDIA_BUS_FMT_UYVY8_1X16,
++		.lanes = 4,
++		.fps = 30,
++		.bpp = 8,
++	},
++};
++
++static int supported_frame_rates[] = {
++	30,
++	60,
++};
++
++static u32 supported_formats[] = {
++	MEDIA_BUS_FMT_UYVY8_1X16,
++};
++
++struct isx031 {
++	struct v4l2_subdev sd;
++	struct media_pad pad;
++	struct v4l2_ctrl_handler ctrl_handler;
++
++	/* V4L2 Controls */
++	struct v4l2_ctrl *link_freq;
++	struct v4l2_ctrl *exposure;
++	struct v4l2_ctrl *analogue_gain;
++	struct v4l2_ctrl *digital_gain;
++	struct v4l2_ctrl *strobe_source;
++	struct v4l2_ctrl *strobe;
++	struct v4l2_ctrl *strobe_stop;
++	struct v4l2_ctrl *timeout;
++	struct v4l2_ctrl *pixel_rate;
++	struct v4l2_ctrl *hblank;
++	struct v4l2_ctrl *vflip;
++	struct v4l2_ctrl *hflip;
++	struct v4l2_ctrl *fps;
++	struct v4l2_ctrl *frame_interval;
++	struct v4l2_ctrl *query_sub_stream;
++	struct v4l2_ctrl *set_sub_stream;
++
++	/* Current mode */
++	const struct isx031_mode *cur_mode;
++
++	/* To serialize asynchronus callbacks */
++	struct mutex mutex;
++
++	/* Streaming on/off */
++	bool streaming;
++
++	struct isx031_platform_data *platform_data;
++
++	s64 sub_stream;
++};
++
++static int isx031_init(struct isx031 *isx031);
++static int isx031_restart_stream(struct isx031 *isx031);
++
++#define to_isx031(_sd)			container_of(_sd, struct isx031, sd)
++
++static int isx031_read_reg(struct isx031 *isx031, u16 reg, u16 len, u32 *val)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&isx031->sd);
++	struct i2c_msg msgs[2];
++	u8 addr_buf[2];
++	u8 data_buf[4] = {0};
++	int ret;
++
++	if (len > 4)
++		return -EINVAL;
++
++	put_unaligned_be16(reg, addr_buf);
++	msgs[0].addr = client->addr;
++	msgs[0].flags = 0;
++	msgs[0].len = sizeof(addr_buf);
++	msgs[0].buf = addr_buf;
++	msgs[1].addr = client->addr;
++	msgs[1].flags = I2C_M_RD;
++	msgs[1].len = len;
++	msgs[1].buf = data_buf;
++
++	ret = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
++	if (ret != ARRAY_SIZE(msgs))
++		return -EIO;
++
++	switch (len) {
++		case ISX031_REG_VALUE_08BIT:
++			*val = data_buf[0];
++			break;
++		case ISX031_REG_VALUE_16BIT:
++			*val = get_unaligned_le16(data_buf);
++			break;
++		case ISX031_REG_VALUE_32BIT:
++			*val = get_unaligned_le32(data_buf);
++			break;
++
++		default:
++			return -EINVAL;
++	}
++
++	return 0;
++}
++
++static int isx031_write_reg(struct isx031 *isx031, u16 reg, u16 len, u32 val)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&isx031->sd);
++	u8 buf[6];
++
++	if (len > 4)
++		return -EINVAL;
++
++	put_unaligned_be16(reg, buf);
++	switch (len) {
++		case ISX031_REG_VALUE_08BIT:
++			buf[2] = (val & 0xFF);
++			break;
++		case ISX031_REG_VALUE_16BIT:
++			put_unaligned_le16(val, &buf[2]);
++			break;
++		case ISX031_REG_VALUE_32BIT:
++			put_unaligned_le32(val, &buf[2]);
++			break;
++
++		default:
++			return -EINVAL;
++	}
++
++	if (i2c_master_send(client, buf, len + 2) != len + 2)
++		return -EIO;
++
++	return 0;
++}
++
++static int isx031_modify_reg(struct isx031 *isx031, u16 reg, u16 len, u32 mask, u32 val)
++{
++	u32 temp;
++	int ret;
++
++	ret = isx031_read_reg(isx031, reg, len, &temp);
++	if (ret)
++		return ret;
++
++	temp &= ~(mask);
++	temp |= val;
++
++	return isx031_write_reg(isx031, reg, len, temp);
++}
++
++static u64 get_pixel_rate(struct isx031 *isx031)
++{
++	u64 pixel_rate;
++
++	TRACE_ISX031(isx031);
++	//TODO: Seems sane to re-use this as-is? 24MHz is enough for full-size @ 60?
++
++	if (isx031->cur_mode->lanes == 4)
++		pixel_rate = FSERIAL_CLK_4_LANE;
++	else if (isx031->cur_mode->lanes == 2)
++		pixel_rate = FSERIAL_CLK_2_LANE;
++	else
++		pixel_rate = FSERIAL_CLK_4_LANE;
++
++	return pixel_rate;
++}
++
++static int isx031_set_stream(struct v4l2_subdev *sd, int enable);
++
++static int isx031_set_ctrl(struct v4l2_ctrl *ctrl)
++{
++	struct isx031 *isx031 = container_of(ctrl->handler,
++						 struct isx031, ctrl_handler);
++	struct i2c_client *client = v4l2_get_subdevdata(&isx031->sd);
++	int ret = 0;
++	u32 val;
++
++	TRACE_ISX031(isx031);
++
++	if (ctrl->id == V4L2_CID_IPU_SET_SUB_STREAM) {
++		val = (*ctrl->p_new.p_s64 & 0xFFFF);
++		dev_info(&client->dev, "V4L2_CID_IPU_SET_SUB_STREAM %x\n", val);
++		mutex_unlock(&isx031->mutex);
++		ret = isx031_set_stream(&isx031->sd, val & 0x00FF);
++		mutex_lock(&isx031->mutex);
++		return ret;
++	}
++
++	/* V4L2 controls values will be applied only when power is already up */
++	if (!pm_runtime_get_if_in_use(&client->dev))
++		return 0;
++
++	switch (ctrl->id) {
++	case V4L2_CID_ANALOGUE_GAIN:
++		break;
++
++	case V4L2_CID_DIGITAL_GAIN:
++		break;
++
++	case V4L2_CID_EXPOSURE:
++		break;
++
++	case V4L2_CID_FLASH_STROBE_SOURCE:
++		dev_dbg(&client->dev, "set led flash source %d\n", ctrl->val);
++		break;
++
++	case V4L2_CID_FLASH_STROBE:
++		if (isx031->platform_data && isx031->platform_data->gpios[0] != -1) {
++			if (isx031->strobe_source->val ==
++					V4L2_FLASH_STROBE_SOURCE_SOFTWARE)
++				gpio_set_value(isx031->platform_data->gpios[0], 1);
++		}
++		dev_info(&client->dev, "turn on led %d\n", ctrl->val);
++
++		break;
++
++	case V4L2_CID_FLASH_STROBE_STOP:
++		if (isx031->platform_data && isx031->platform_data->gpios[0] != -1) {
++			if (isx031->strobe_source->val ==
++					V4L2_FLASH_STROBE_SOURCE_SOFTWARE)
++				gpio_set_value(isx031->platform_data->gpios[0], 0);
++		}
++		dev_info(&client->dev, "turn off led %d\n", ctrl->val);
++		break;
++
++	case V4L2_CID_FLASH_TIMEOUT:
++		break;
++
++	case V4L2_CID_VFLIP:
++	case V4L2_CID_HFLIP:
++		// Orientation can't be reconfigured while streaming
++		// Restart to pick up new setting
++		ret = isx031_restart_stream(isx031);
++		break;
++
++	case ISX031_CID_FPS:
++		// FPS requires a different streaming mode
++		ret = isx031_restart_stream(isx031);
++		break;
++
++	default:
++		dev_err(&client->dev, "unexpected ctrl id 0x%08x\n", ctrl->id);
++		ret = -EINVAL;
++		break;
++	}
++
++	pm_runtime_put(&client->dev);
++
++	return ret;
++}
++
++static const struct v4l2_ctrl_ops isx031_ctrl_ops = {
++	.s_ctrl = isx031_set_ctrl,
++};
++
++static const s64 isx031_fps_menu[] = {
++	30,
++	60,
++};
++
++static struct v4l2_ctrl_config isx031_fps = {
++	.ops	= &isx031_ctrl_ops,
++	.id		= ISX031_CID_FPS,
++	.type	= V4L2_CTRL_TYPE_INTEGER_MENU,
++	.name	= "fps",
++	.min = 0,
++	.max = ARRAY_SIZE(isx031_fps_menu) - 1,
++	.step = 0,
++	.def = 0,
++	.menu_skip_mask = 0,
++	.qmenu_int = isx031_fps_menu,
++};
++
++static struct v4l2_ctrl_config isx031_frame_interval = {
++	.ops	= &isx031_ctrl_ops,
++	.id		= ISX031_CID_FRAME_INTERVAL,
++	.type	= V4L2_CTRL_TYPE_INTEGER,
++	.name	= "frame interval",
++	.min	= 0,
++	.max	= 1000,
++	.def	= 25,
++	.step	= 1,
++	.flags	= V4L2_CTRL_FLAG_READ_ONLY,
++};
++
++static struct v4l2_ctrl_config isx031_q_sub_stream = {
++	.ops = &isx031_ctrl_ops,
++	.id = V4L2_CID_IPU_QUERY_SUB_STREAM,
++	.name = "query virtual channel",
++	.type = V4L2_CTRL_TYPE_INTEGER_MENU,
++	.max = 1,
++	.min = 0,
++	.def = 0,
++	.menu_skip_mask = 0,
++	.qmenu_int = NULL,
++};
++
++static const struct v4l2_ctrl_config isx031_s_sub_stream = {
++	.ops = &isx031_ctrl_ops,
++	.id = V4L2_CID_IPU_SET_SUB_STREAM,
++	.name = "set virtual channel",
++	.type = V4L2_CTRL_TYPE_INTEGER64,
++	.max = 0xFFFF,
++	.min = 0,
++	.def = 0,
++	.step = 1,
++};
++
++#define MIPI_CSI2_TYPE_YUV422_8         0x1e
++
++static unsigned int mbus_code_to_mipi(u32 code)
++{
++	return MIPI_CSI2_TYPE_YUV422_8;
++}
++
++static void set_sub_stream_fmt(s64 *sub_stream, u32 code)
++{
++       *sub_stream &= 0xFFFFFFFFFFFF0000;
++       *sub_stream |= code;
++}
++
++static void set_sub_stream_h(s64 *sub_stream, u32 height)
++{
++       s64 val = height;
++       val &= 0xFFFF;
++       *sub_stream &= 0xFFFFFFFF0000FFFF;
++       *sub_stream |= val << 16;
++}
++
++static void set_sub_stream_w(s64 *sub_stream, u32 width)
++{
++       s64 val = width;
++       val &= 0xFFFF;
++       *sub_stream &= 0xFFFF0000FFFFFFFF;
++       *sub_stream |= val << 32;
++}
++
++static void set_sub_stream_dt(s64 *sub_stream, u32 dt)
++{
++       s64 val = dt;
++       val &= 0xFF;
++       *sub_stream &= 0xFF00FFFFFFFFFFFF;
++       *sub_stream |= val << 48;
++}
++
++static void set_sub_stream_vc_id(s64 *sub_stream, u32 vc_id)
++{
++       s64 val = vc_id;
++       val &= 0xFF;
++       *sub_stream &= 0x00FFFFFFFFFFFFFF;
++       *sub_stream |= val << 56;
++}
++
++static int isx031_init_controls(struct isx031 *isx031)
++{
++	struct v4l2_ctrl_handler *ctrl_hdlr;
++	int ret;
++
++	TRACE_ISX031(isx031);
++
++	ctrl_hdlr = &isx031->ctrl_handler;
++	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 8);
++	if (ret)
++		return ret;
++
++	ctrl_hdlr->lock = &isx031->mutex;
++	isx031->link_freq = v4l2_ctrl_new_int_menu(ctrl_hdlr, &isx031_ctrl_ops,
++					   V4L2_CID_LINK_FREQ,
++					   ARRAY_SIZE(link_freq_menu_items) - 1,
++					   0, link_freq_menu_items);
++	if (isx031->link_freq)
++		isx031->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	isx031->strobe_source = v4l2_ctrl_new_std_menu(
++			ctrl_hdlr, &isx031_ctrl_ops,
++			V4L2_CID_FLASH_STROBE_SOURCE,
++			1, 0, 1);
++	isx031->strobe = v4l2_ctrl_new_std(ctrl_hdlr, &isx031_ctrl_ops,
++			V4L2_CID_FLASH_STROBE, 0, 0, 0, 0);
++	isx031->strobe_stop = v4l2_ctrl_new_std(ctrl_hdlr, &isx031_ctrl_ops,
++			V4L2_CID_FLASH_STROBE_STOP, 0, 0, 0, 0);
++	isx031->timeout = v4l2_ctrl_new_std(ctrl_hdlr, &isx031_ctrl_ops,
++			V4L2_CID_FLASH_TIMEOUT, -128, 127, 1, 0);
++
++	isx031->pixel_rate = v4l2_ctrl_new_std(ctrl_hdlr, &isx031_ctrl_ops,
++			V4L2_CID_PIXEL_RATE, get_pixel_rate(isx031), get_pixel_rate(isx031),
++			1, get_pixel_rate(isx031));
++	if (isx031->pixel_rate)
++		isx031->pixel_rate->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	isx031->vflip = v4l2_ctrl_new_std(ctrl_hdlr, &isx031_ctrl_ops,
++					  V4L2_CID_VFLIP, 0, 1, 1, 0);
++	isx031->hflip = v4l2_ctrl_new_std(ctrl_hdlr, &isx031_ctrl_ops,
++					  V4L2_CID_HFLIP, 0, 1, 1, 0);
++
++	isx031_fps.def = 0;
++	isx031->fps = v4l2_ctrl_new_custom(ctrl_hdlr, &isx031_fps, NULL);
++	isx031_frame_interval.def = 1000 / isx031->cur_mode->fps;
++	isx031->frame_interval = v4l2_ctrl_new_custom(ctrl_hdlr, &isx031_frame_interval, NULL);
++
++	isx031_q_sub_stream.qmenu_int = &isx031->sub_stream;
++	isx031->query_sub_stream = v4l2_ctrl_new_custom(ctrl_hdlr, &isx031_q_sub_stream, NULL);
++	isx031->set_sub_stream = v4l2_ctrl_new_custom(ctrl_hdlr, &isx031_s_sub_stream, NULL);
++
++	if (ctrl_hdlr->error)
++		return ctrl_hdlr->error;
++
++	isx031->sd.ctrl_handler = ctrl_hdlr;
++
++	return ret;
++}
++
++static void isx031_update_pad_format(const struct isx031_mode *mode,
++					 struct v4l2_mbus_framefmt *fmt)
++{
++	fmt->width = mode->width;
++	fmt->height = mode->height;
++	fmt->code = mode->code;
++	fmt->field = V4L2_FIELD_NONE;
++}
++
++static int isx031_wait_for_sensor_state(struct isx031 *isx031, u32 sensor_state)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&isx031->sd);
++	int ret;
++	u32 val;
++	unsigned long timeout;
++
++	TRACE_ISX031(isx031);
++
++	timeout = jiffies + msecs_to_jiffies(200);
++	do {
++		ret = isx031_read_reg(isx031,ISX031_REG_DEVSTS, ISX031_REG_VALUE_08BIT, &val);
++		if (ret) {
++			dev_warn(&client->dev, "Failed to read DEVSTS: %d", ret);
++		}
++		if (val == sensor_state) {
++			dev_dbg(&client->dev, "Enter state %d", val);
++			return 0;
++		}
++		usleep_range(400, 400);
++	} while (time_is_after_jiffies(timeout));
++
++	return -ETIMEDOUT;
++}
++
++static int isx031_configure_mode(struct isx031 *isx031)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&isx031->sd);
++	int ret;
++	u32 mode;
++
++	TRACE_ISX031(isx031);
++
++
++	// See ISX031 Application Note, section 7.5.3.1.
++	// Register name and field are not documented... read-out direction?
++	ret = isx031_modify_reg(isx031, 0x1810, ISX031_REG_VALUE_08BIT,
++		0x1F, (isx031->hflip->val ? 0x1 : 0x4));
++	if (ret) {
++		dev_err(&client->dev, "Failed to set read-out direction: %d", ret);
++		return ret;
++	}
++
++	ret = isx031_modify_reg(isx031, ISX031_REG_HORIZONTAL_FLIPPING, ISX031_REG_VALUE_08BIT,
++		ISX031_REG_HORIZONTAL_FLIPPING_MASK << ISX031_REG_HORIZONTAL_FLIPPING_POS,
++		isx031->hflip->val << ISX031_REG_HORIZONTAL_FLIPPING_POS);
++	if (ret) {
++		dev_err(&client->dev, "Failed to set HORIZONTAL_FLIPPING: %d", ret);
++		return ret;
++	}
++
++	ret = isx031_modify_reg(isx031, ISX031_REG_HORIZONTAL_FLIPPING_APL, ISX031_REG_VALUE_08BIT,
++		ISX031_REG_HORIZONTAL_FLIPPING_MASK << ISX031_REG_HORIZONTAL_FLIPPING_POS,
++		isx031->hflip->val << ISX031_REG_HORIZONTAL_FLIPPING_POS);
++	if (ret) {
++		dev_err(&client->dev, "Failed to set HORIZONTAL_FLIPPING_APL: %d", ret);
++		return ret;
++	}
++
++	ret = isx031_modify_reg(isx031, ISX031_REG_VERTICAL_FLIPPING, ISX031_REG_VALUE_08BIT,
++		ISX031_REG_VERTICAL_FLIPPING_MASK << ISX031_REG_VERTICAL_FLIPPING_POS,
++		isx031->vflip->val << ISX031_REG_VERTICAL_FLIPPING_POS);
++	if (ret) {
++		dev_err(&client->dev, "Failed to set VERTICAL_FLIPPING: %d", ret);
++		return ret;
++	}
++
++	ret = isx031_modify_reg(isx031, ISX031_REG_VERTICAL_FLIPPING_APL, ISX031_REG_VALUE_08BIT,
++		ISX031_REG_VERTICAL_FLIPPING_MASK << ISX031_REG_VERTICAL_FLIPPING_POS,
++		isx031->vflip->val << ISX031_REG_VERTICAL_FLIPPING_POS);
++	if (ret) {
++		dev_err(&client->dev, "Failed to set VERTICAL_FLIPPING_APL: %d", ret);
++		return ret;
++	}
++
++	// TODO: AE->ME
++
++	mode = isx031->cur_mode->mode;
++	if (isx031->cur_mode->fps != isx031_fps_menu[isx031->fps->val]) {
++		if (mode == ISX031_MODE_1920x1536_60_4LANE) {
++			mode = ISX031_MODE_1920x1536_30_4LANE;
++		} else if (mode == ISX031_MODE_1920x1536_30_4LANE) {
++			mode = ISX031_MODE_1920x1536_60_4LANE;
++		}
++	}
++	dev_dbg(&client->dev, "configure mode %d", mode);
++	ret = isx031_modify_reg(isx031, ISX031_REG_MODE_SEL, ISX031_REG_VALUE_16BIT,
++		ISX031_REG_MODE_SEL_MASK << ISX031_REG_MODE_SEL_POS,
++		isx031->cur_mode->mode << ISX031_REG_MODE_SEL_POS);
++	if (ret) {
++		dev_err(&client->dev, "failed to set mode: %d", ret);
++		return ret;
++	}
++
++	// TODO: HDRON/HDRON_APL
++
++	return 0;
++}
++
++static int isx031_start_streaming(struct isx031 *isx031)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&isx031->sd);
++	int ret;
++
++	TRACE_ISX031(isx031);
++
++	ret = isx031_init(isx031);
++	if (ret) {
++		return ret;
++	}
++
++	ret = isx031_configure_mode(isx031);
++	if (ret) {
++		return ret;
++	}
++
++	ret = isx031_write_reg(isx031, ISX031_REG_MODE_SET_F_LOCK,
++		ISX031_REG_VALUE_08BIT, ISX031_MODE_SET_F_APPLICATION_LOCK);
++	if (ret) {
++		dev_err(&client->dev, "failed to set f-lock");
++		return ret;
++	}
++
++	ret = isx031_modify_reg(isx031, ISX031_REG_MODE_SEL, ISX031_REG_VALUE_16BIT,
++		ISX031_REG_MODE_SET_F_MASK << ISX031_REG_MODE_SET_F_POS,
++		ISX031_MODE_SET_F_TRANSITION_TO_STREAMING << ISX031_REG_MODE_SET_F_POS);
++	if (ret) {
++		dev_err(&client->dev, "failed to start streaming");
++		return ret;
++	}
++
++	ret = isx031_wait_for_sensor_state(isx031, ISX031_SENSOR_STATE_STREAMING);
++	if (ret) {
++		dev_err(&client->dev, "failed while waiting for streaming state");
++		return ret;
++	}
++
++	return 0;
++}
++
++static void isx031_stop_streaming(struct isx031 *isx031)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&isx031->sd);
++	int ret;
++
++	TRACE_ISX031(isx031);
++
++	ret = isx031_write_reg(isx031, ISX031_REG_MODE_SET_F_LOCK,
++		ISX031_REG_VALUE_08BIT, ISX031_MODE_SET_F_APPLICATION_LOCK);
++	if (ret) {
++		dev_err(&client->dev, "failed to set f-lock");
++		return;
++	}
++
++	ret = isx031_modify_reg(isx031, ISX031_REG_MODE_SEL, ISX031_REG_VALUE_16BIT,
++		ISX031_REG_MODE_SET_F_MASK << ISX031_REG_MODE_SET_F_POS,
++		ISX031_MODE_SET_F_TRANSITION_TO_STARTUP << ISX031_REG_MODE_SET_F_POS);
++	if (ret) {
++		dev_err(&client->dev, "failed to stop streaming");
++		return;
++	}
++
++	ret = isx031_wait_for_sensor_state(isx031, ISX031_SENSOR_STATE_START_UP);
++	if (ret) {
++		dev_err(&client->dev, "failed while waiting for start up state");
++		return;
++	}
++
++	/*
++	 * turn off flash, clear possible noise.
++	 */
++	if (isx031->platform_data && isx031->platform_data->gpios[0] != -1)
++		gpio_set_value(isx031->platform_data->gpios[0], 0);
++
++}
++
++static int isx031_restart_stream(struct isx031 *isx031)
++{
++	TRACE_ISX031(isx031);
++
++	if (!isx031->streaming)
++		return 0;
++
++	isx031_stop_streaming(isx031);
++
++	return isx031_start_streaming(isx031);
++}
++
++static int isx031_set_stream(struct v4l2_subdev *sd, int enable)
++{
++	struct isx031 *isx031 = to_isx031(sd);
++	struct i2c_client *client = v4l2_get_subdevdata(sd);
++	int ret = 0;
++	if (isx031->streaming == enable)
++		return 0;
++
++	TRACE_ISX031(isx031);
++
++	mutex_lock(&isx031->mutex);
++	if (enable) {
++		ret = pm_runtime_get_sync(&client->dev);
++		if (ret < 0) {
++			pm_runtime_put_noidle(&client->dev);
++			mutex_unlock(&isx031->mutex);
++			return ret;
++		}
++
++		ret = isx031_start_streaming(isx031);
++		if (ret) {
++			enable = 0;
++			isx031_stop_streaming(isx031);
++			pm_runtime_put(&client->dev);
++		}
++	} else {
++		isx031_stop_streaming(isx031);
++		pm_runtime_put(&client->dev);
++	}
++
++	isx031->streaming = enable;
++	mutex_unlock(&isx031->mutex);
++
++	return ret;
++}
++
++static int isx031_g_frame_interval(struct v4l2_subdev *sd,
++		struct v4l2_subdev_frame_interval *fival)
++{
++	struct isx031 *isx031 = to_isx031(sd);
++
++	TRACE_ISX031(isx031);
++
++	fival->pad = 0;
++	fival->interval.numerator = 1;
++	fival->interval.denominator = isx031->cur_mode->fps;
++
++	return 0;
++}
++
++static int __maybe_unused isx031_suspend(struct device *dev)
++{
++	struct i2c_client *client = to_i2c_client(dev);
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct isx031 *isx031 = to_isx031(sd);
++
++	TRACE_ISX031(isx031);
++
++	mutex_lock(&isx031->mutex);
++	if (isx031->streaming)
++		isx031_stop_streaming(isx031);
++
++	mutex_unlock(&isx031->mutex);
++
++	return 0;
++}
++
++static int __maybe_unused isx031_restore(struct device *dev)
++{
++	struct i2c_client *client = to_i2c_client(dev);
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct isx031 *isx031 = to_isx031(sd);
++	int ret;
++
++	TRACE_ISX031(isx031);
++
++	mutex_lock(&isx031->mutex);
++
++	ret = isx031_init(isx031);
++
++	mutex_unlock(&isx031->mutex);
++
++	return ret;
++}
++
++static int __maybe_unused isx031_resume(struct device *dev)
++{
++	struct i2c_client *client = to_i2c_client(dev);
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct isx031 *isx031 = to_isx031(sd);
++	int ret;
++
++	TRACE_ISX031(isx031);
++
++	mutex_lock(&isx031->mutex);
++	if (isx031->streaming) {
++		ret = isx031_start_streaming(isx031);
++		if (ret) {
++			isx031->streaming = false;
++			isx031_stop_streaming(isx031);
++			mutex_unlock(&isx031->mutex);
++			return ret;
++		}
++	}
++
++	mutex_unlock(&isx031->mutex);
++
++	return 0;
++}
++
++static int isx031_set_format(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *sd_state,
++				 struct v4l2_subdev_format *fmt)
++{
++	struct isx031 *isx031 = to_isx031(sd);
++	struct i2c_client *client = v4l2_get_subdevdata(&isx031->sd);
++	const struct isx031_mode *mode;
++	int i;
++
++	TRACE_ISX031(isx031);
++
++	for (i = 0; i < ARRAY_SIZE(supported_modes); i++) {
++		if (supported_modes[i].width != fmt->format.width
++			|| supported_modes[i].height != fmt->format.height) {
++			dev_dbg(&client->dev, "resolution doesn't match\n");
++			continue;
++		}
++		if (supported_modes[i].code != fmt->format.code) {
++			dev_dbg(&client->dev, "pixel format doesn't match\n");
++			continue;
++		}
++		if (supported_modes[i].fps != isx031_fps_menu[isx031->fps->val]) {
++			dev_dbg(&client->dev, "fps doesn't match\n");
++			continue;
++		}
++		mode = &supported_modes[i];
++		break;
++	}
++
++	if (i >= ARRAY_SIZE(supported_modes))
++		mode = &supported_modes[0];
++
++	mutex_lock(&isx031->mutex);
++	isx031_update_pad_format(mode, &fmt->format);
++	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
++		*v4l2_subdev_get_try_format(sd, sd_state, fmt->pad) = fmt->format;
++	} else {
++		isx031->cur_mode = mode;
++		__v4l2_ctrl_s_ctrl(isx031->link_freq, mode->link_freq_index);
++		__v4l2_ctrl_modify_range(isx031->pixel_rate,
++					get_pixel_rate(isx031),
++					get_pixel_rate(isx031),
++					1,
++					get_pixel_rate(isx031));
++
++		for (i = 0; i < ARRAY_SIZE(isx031_fps_menu); i++) {
++			if (isx031_fps_menu[i] == mode->fps) {
++				__v4l2_ctrl_s_ctrl(isx031->fps, i);
++				break;
++			}
++		}
++
++		__v4l2_ctrl_s_ctrl(isx031->frame_interval, 1000 / mode->fps);
++	}
++
++	set_sub_stream_fmt(&isx031->sub_stream, fmt->format.code);
++	set_sub_stream_h(&isx031->sub_stream, fmt->format.height);
++	set_sub_stream_w(&isx031->sub_stream, fmt->format.width);
++	set_sub_stream_dt(&isx031->sub_stream, mbus_code_to_mipi(fmt->format.code));
++	set_sub_stream_vc_id(&isx031->sub_stream, 0);
++
++	mutex_unlock(&isx031->mutex);
++
++	return 0;
++}
++
++static int isx031_get_format(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *sd_state,
++				 struct v4l2_subdev_format *fmt)
++{
++	struct isx031 *isx031 = to_isx031(sd);
++
++	TRACE_ISX031(isx031);
++
++	mutex_lock(&isx031->mutex);
++	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
++		fmt->format = *v4l2_subdev_get_try_format(&isx031->sd,
++							  sd_state, fmt->pad);
++	else
++		isx031_update_pad_format(isx031->cur_mode, &fmt->format);
++
++	mutex_unlock(&isx031->mutex);
++
++	return 0;
++}
++
++static int isx031_enum_mbus_code(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *sd_state,
++				 struct v4l2_subdev_mbus_code_enum *code)
++{
++	struct isx031 *isx031 = to_isx031(sd);
++
++	if (code->index >= ARRAY_SIZE(supported_formats))
++		return -EINVAL;
++
++	TRACE_ISX031(isx031);
++
++	code->code = supported_formats[code->index];
++
++	return 0;
++}
++
++static int isx031_enum_frame_size(struct v4l2_subdev *sd,
++				  struct v4l2_subdev_state *sd_state,
++				  struct v4l2_subdev_frame_size_enum *fse)
++{
++	struct isx031 *isx031 = to_isx031(sd);
++
++	if (fse->index >= ARRAY_SIZE(supported_modes))
++		return -EINVAL;
++
++	TRACE_ISX031(isx031);
++
++	fse->min_width = supported_modes[fse->index].width;
++	fse->max_width = fse->min_width;
++	fse->min_height = supported_modes[fse->index].height;
++	fse->max_height = fse->min_height;
++
++	return 0;
++}
++
++static int isx031_enum_frame_interval(struct v4l2_subdev *sd,
++		struct v4l2_subdev_state *sd_state,
++		struct v4l2_subdev_frame_interval_enum *fie)
++{
++	struct isx031 *isx031 = to_isx031(sd);
++
++	int mode_size = ARRAY_SIZE(supported_modes);
++	int i;
++
++	TRACE_ISX031(isx031);
++
++	if (fie->index >= ARRAY_SIZE(supported_frame_rates))
++		return -EINVAL;
++
++	for (i = 0; i < mode_size; i++)
++		if (fie->code == supported_modes[i].code
++			&& fie->width == supported_modes[i].width
++			&& fie->height == supported_modes[i].height)
++			break;
++
++	if (i == mode_size)
++		return -EINVAL;
++
++	fie->interval.numerator = 1;
++	fie->interval.denominator = supported_frame_rates[fie->index];
++
++	return 0;
++}
++
++static int isx031_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
++{
++	struct isx031 *isx031 = to_isx031(sd);
++
++	TRACE_ISX031(isx031);
++
++	mutex_lock(&isx031->mutex);
++	isx031_update_pad_format(&supported_modes[0],
++				 v4l2_subdev_get_try_format(sd, fh->state, 0));
++	mutex_unlock(&isx031->mutex);
++
++	return 0;
++}
++
++static const struct v4l2_subdev_video_ops isx031_video_ops = {
++	.s_stream = isx031_set_stream,
++	.g_frame_interval = isx031_g_frame_interval,
++};
++
++static const struct v4l2_subdev_pad_ops isx031_pad_ops = {
++	.set_fmt = isx031_set_format,
++	.get_fmt = isx031_get_format,
++	.enum_mbus_code = isx031_enum_mbus_code,
++	.enum_frame_size = isx031_enum_frame_size,
++	.enum_frame_interval = isx031_enum_frame_interval,
++};
++
++static const struct v4l2_subdev_ops isx031_subdev_ops = {
++	.video = &isx031_video_ops,
++	.pad = &isx031_pad_ops,
++};
++
++static const struct media_entity_operations isx031_subdev_entity_ops = {
++	.link_validate = v4l2_subdev_link_validate,
++};
++
++static const struct v4l2_subdev_internal_ops isx031_internal_ops = {
++	.open = isx031_open,
++};
++
++static int isx031_remove(struct i2c_client *client)
++{
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct isx031 *isx031 = to_isx031(sd);
++
++	v4l2_async_unregister_subdev(sd);
++	media_entity_cleanup(&sd->entity);
++	v4l2_ctrl_handler_free(sd->ctrl_handler);
++	pm_runtime_disable(&client->dev);
++	mutex_destroy(&isx031->mutex);
++
++	return 0;
++}
++
++irqreturn_t isx031_threaded_irq_fn(int irq, void *dev_id)
++{
++	struct isx031 *isx031 = dev_id;
++
++	if (isx031->platform_data && ((isx031->platform_data->gpios[0] != -1) && (isx031->platform_data->irq_pin != -1))) {
++		mutex_lock(&isx031->mutex);
++		if (isx031->streaming == false) {
++			gpio_set_value(isx031->platform_data->gpios[0], 0);
++			goto isx031_irq_handled;
++		}
++
++		if (isx031->strobe_source->val == V4L2_FLASH_STROBE_SOURCE_EXTERNAL) {
++			gpio_set_value(isx031->platform_data->gpios[0],
++					gpio_get_value(isx031->platform_data->irq_pin));
++		}
++
++isx031_irq_handled:
++		mutex_unlock(&isx031->mutex);
++	}
++
++	return IRQ_HANDLED;
++}
++
++static int isx031_init(struct isx031 *isx031)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&isx031->sd);
++	int ret;
++	u32 major_version, minor_version, val;
++
++	TRACE_ISX031(isx031);
++
++	ret = isx031_write_reg(isx031, ISX031_REG_REMAP_MODE,
++			ISX031_REG_VALUE_08BIT,
++			ISX031_REMAP_MODE_STARTUP);
++	if (ret) {
++		dev_err(&client->dev, "failed to init: %d", ret);
++		return ret;
++	}
++
++	// Set exposure time unit to microseconds
++	ret = isx031_write_reg(isx031, ISX031_REG_FME_SHTVAL_UNIT,
++			ISX031_REG_VALUE_08BIT,
++			ISX031_FME_SHTVAL_UNIT_MICROSECONDS);
++	if (ret) {
++		dev_err(&client->dev, "failed to init: %d", ret);
++		return ret;
++	}
++	ret = isx031_write_reg(isx031, ISX031_REG_FME_SHTVAL_S1_UNIT,
++			ISX031_REG_VALUE_08BIT,
++			ISX031_FME_SHTVAL_UNIT_MICROSECONDS);
++	if (ret) {
++		dev_err(&client->dev, "failed to init: %d", ret);
++		return ret;
++	}
++
++	ret = isx031_read_reg(isx031, ISX031_REG_PARAM_MAJOR_VER, ISX031_REG_VALUE_08BIT, &major_version);
++	if (ret != 0) {
++		dev_err(&client->dev, "Failed to read MAJOR_VER: %d", ret);
++		return ret;
++	}
++	ret = isx031_read_reg(isx031, ISX031_REG_PARAM_MINOR_VER, ISX031_REG_VALUE_08BIT, &minor_version);
++	if (ret != 0) {
++		dev_err(&client->dev, "Failed to read MINOR_VER: %d", ret);
++		return ret;
++	}
++
++	dev_info(&client->dev, "Got version: %d.%d", major_version, minor_version);
++
++	ret = isx031_read_reg(isx031, ISX031_REG_DEVSTS, ISX031_REG_VALUE_08BIT, &val);
++	if (ret) {
++		dev_err(&client->dev, "Failed to read DEVSTS: %d", ret);
++		return ret;
++	}
++	dev_dbg(&client->dev, "Boot state: %d", val);
++
++	if (val != ISX031_SENSOR_STATE_POWER_ON && val != ISX031_SENSOR_STATE_START_UP)
++		isx031_stop_streaming(isx031);
++
++	return 0;
++}
++
++static int isx031_probe(struct i2c_client *client)
++{
++	struct isx031 *isx031;
++	int ret;
++
++	isx031 = devm_kzalloc(&client->dev, sizeof(*isx031), GFP_KERNEL);
++	if (!isx031)
++		return -ENOMEM;
++
++	isx031->platform_data = client->dev.platform_data;
++	if (isx031->platform_data == NULL) {
++		dev_info(&client->dev, "no platform data provided\n");
++	}
++	v4l2_i2c_subdev_init(&isx031->sd, client, &isx031_subdev_ops);
++
++	TRACE_ISX031(*isx031);
++
++	if (isx031->platform_data && isx031->platform_data->suffix)
++		snprintf(isx031->sd.name,
++				sizeof(isx031->sd.name), "isx031 %c",
++				isx031->platform_data->suffix);
++
++	mutex_init(&isx031->mutex);
++	isx031->cur_mode = &supported_modes[0];
++	ret = isx031_init_controls(isx031);
++	if (ret) {
++		dev_err(&client->dev, "failed to init controls: %d", ret);
++		goto probe_error_v4l2_ctrl_handler_free;
++	}
++
++	ret = isx031_init(isx031);
++	if (ret) {
++		dev_err(&client->dev, "failed to find sensor: %d", ret);
++		return ret;
++	}
++
++	isx031->sd.internal_ops = &isx031_internal_ops;
++	isx031->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
++	isx031->sd.entity.ops = &isx031_subdev_entity_ops;
++	isx031->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
++	isx031->pad.flags = MEDIA_PAD_FL_SOURCE;
++	ret = media_entity_pads_init(&isx031->sd.entity, 1, &isx031->pad);
++	if (ret) {
++		dev_err(&client->dev, "failed to init entity pads: %d", ret);
++		goto probe_error_v4l2_ctrl_handler_free;
++	}
++
++	if (isx031->platform_data && ((isx031->platform_data->gpios[0] != -1) && (isx031->platform_data->irq_pin != -1))) {
++		ret = devm_gpio_request(&client->dev,
++				isx031->platform_data->irq_pin,
++				isx031->platform_data->irq_pin_name);
++		if (ret) {
++			dev_err(&client->dev, "IRQ pin request failed!\n");
++			goto probe_error_v4l2_ctrl_handler_free;
++		}
++		gpio_direction_input(isx031->platform_data->irq_pin);
++		ret = devm_request_threaded_irq(&client->dev,
++				gpio_to_irq(isx031->platform_data->irq_pin),
++				NULL, isx031_threaded_irq_fn,
++				isx031->platform_data->irq_pin_flags,
++				isx031->platform_data->irq_pin_name,
++				isx031);
++		if (ret) {
++			dev_err(&client->dev, "IRQ request failed!\n");
++			goto probe_error_v4l2_ctrl_handler_free;
++		}
++
++		ret = devm_gpio_request_one(&client->dev,
++				isx031->platform_data->gpios[0],
++				GPIOF_OUT_INIT_LOW, "LED");
++		if (ret) {
++			dev_err(&client->dev, "LED GPIO pin request failed!\n");
++			goto probe_error_v4l2_ctrl_handler_free;
++		}
++	}
++
++	ret = v4l2_async_register_subdev_sensor(&isx031->sd);
++	if (ret < 0) {
++		dev_err(&client->dev, "failed to register V4L2 subdev: %d",
++			ret);
++		goto probe_error_media_entity_cleanup;
++	}
++
++	/*
++	 * Device is already turned on by i2c-core with ACPI domain PM.
++	 * Enable runtime PM and turn off the device.
++	 */
++	pm_runtime_set_active(&client->dev);
++	pm_runtime_enable(&client->dev);
++	pm_runtime_idle(&client->dev);
++
++	return 0;
++
++probe_error_media_entity_cleanup:
++	media_entity_cleanup(&isx031->sd.entity);
++
++probe_error_v4l2_ctrl_handler_free:
++	v4l2_ctrl_handler_free(isx031->sd.ctrl_handler);
++	mutex_destroy(&isx031->mutex);
++
++	return ret;
++}
++
++static const struct dev_pm_ops isx031_pm_ops = {
++	.suspend = isx031_suspend,
++	.resume = isx031_resume,
++	.freeze = isx031_suspend,
++	.thaw = isx031_resume,
++	.poweroff = isx031_suspend,
++	.restore = isx031_restore,
++};
++
++static const struct i2c_device_id isx031_id_table[] = {
++	{ "isx031", 0 },
++	{ /* sentinel */ },
++};
++MODULE_DEVICE_TABLE(i2c, isx031_id_table);
++
++static struct i2c_driver isx031_i2c_driver = {
++	.driver = {
++		.name = "isx031",
++		// .pm = &isx031_pm_ops,
++	},
++	.probe_new = isx031_probe,
++	.remove = isx031_remove,
++	.id_table = isx031_id_table,
++};
++
++module_i2c_driver(isx031_i2c_driver);
++
++MODULE_AUTHOR("Josh Watts <jwatts@d3engineering.com>");
++MODULE_DESCRIPTION("isx031 sensor driver");
++MODULE_LICENSE("GPL v2");
+diff --git a/drivers/media/i2c/isx031_registers.h b/drivers/media/i2c/isx031_registers.h
+new file mode 100644
+index 000000000000..f2f5546ff3b4
+--- /dev/null
++++ b/drivers/media/i2c/isx031_registers.h
+@@ -0,0 +1,135 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/* Copyright (C) 2023 Define Design Deploy Corp. All Rights Reserved. */
++#ifndef ISX031_REGISTERS_H
++#define ISX031_REGISTERS_H
++
++
++enum isx031_reg_addrs {
++    ISX031_REG_PARAM_MINOR_VER = 0x6000,
++    ISX031_REG_PARAM_MAJOR_VER = 0x6002,
++    ISX031_REG_DEVSTS = 0x6005,
++    ISX031_REG_MODE_SEL = 0x8A00,
++    ISX031_REG_IFD_DATATYPE_VISIBLE_CTRLSEL = 0xBDF9,
++    ISX031_REG_MODE_SET_F_LOCK = 0xBEF0,
++    ISX031_REG_HDRON = 0x8A7B,
++    ISX031_REG_OUTSEL_1 = 0x8A80,
++    ISX031_REG_HDRON_APL = 0xBF02,
++    ISX031_REG_OUTSEL_1_APL = 0xBF61,
++    ISX031_REG_HORIZONTAL_FLIPPING = 0x8A68,
++    ISX031_REG_HORIZONTAL_FLIPPING_APL = 0xBEFE,
++    ISX031_REG_VERTICAL_FLIPPING = 0x8A69,
++    ISX031_REG_VERTICAL_FLIPPING_APL   = 0xBEFF,
++    ISX031_REG_AEMODE = 0xABC0,
++    ISX031_REG_FME_SHTVAL = 0xABEC,
++    ISX031_REG_FME_SHTVAL_UNIT = 0xABF0,
++    ISX031_REG_FME_SHTVAL_S1 = 0xABF4,
++    ISX031_REG_FME_SHTVAL_S1_UNIT = 0xABF8,
++    ISX031_REG_IFD_DATATYPE_VISIBLE = 0xBDFE,
++    ISX031_REG_REMAP_MODE = 0xFFFF
++};
++
++// DEVSTS register values
++enum isx031_sensor_state {
++    ISX031_SENSOR_STATE_POWER_ON        = 1,
++    ISX031_SENSOR_STATE_START_UP        = 2,
++    ISX031_SENSOR_STATE_STREAMING       = 5,
++    ISX031_SENSOR_STATE_SLEEP           = 8,
++    ISX031_SENSOR_STATE_SAFE_STATE_MODE = 13,
++    ISX031_SENSOR_STATE_BIST_STANDBY    = 17
++};
++
++// AEMODE register values
++enum isx031_aemode {
++    ISX031_AEMODE_AE_AUTO  = 0,
++    ISX031_AEMODE_AE_HOLD  = 1,
++    ISX031_AEMODE_SCALE_ME = 2,
++    ISX031_AEMODE_FULL_ME  = 3
++};
++
++// FME_SHTVAL_UNIT values
++enum isx031_fme_shtval_unit {
++    ISX031_FME_SHTVAL_UNIT_LINES        = 1,
++    ISX031_FME_SHTVAL_UNIT_MICROSECONDS = 3,
++    ISX031_FME_SHTVAL_UNIT_FRAMES       = 4
++};
++
++// MODE_SEL values
++enum isx031_drive_mode {
++    ISX031_MODE_1920x1536_60_4LANE = 1,
++    ISX031_MODE_1920x1536_30_4LANE = 23,
++    ISX031_MODE_1920x1536_30_2LANE = 24,
++};
++
++enum isx031_mode_set_f {
++    ISX031_MODE_SET_F_TRANSITION_TO_STARTUP = 0,
++    ISX031_MODE_SET_F_TRANSITION_TO_STREAMING = 1
++};
++
++// H_REVERSE_ values
++enum isx031_horizontal_flip {
++    ISX031_HORIZONTAL_FLIPPING_DISABLED = 0x0,
++    ISX031_HORIZONTAL_FLIPPING_ENABLED = 0x1
++};
++
++// V_REVERSE_ values
++enum isx031_vertical_flip {
++    ISX031_VERTICAL_FLIPPING_DISABLED = 0x0,
++    ISX031_VERTICAL_FLIPPING_ENABLED = 0x1
++};
++
++// HDRON_/HDRON_APL values
++enum isx031_hdron {
++    ISX031_HDRON_DISABLE = 0,
++    ISX031_HDRON_ENABLE = 1
++};
++
++// OUTSEL_1_/OUTSEL_1_APL values
++enum isx031_outsel_1 {
++    ISX031_OUTSEL_1_SP1_HCG = 0,
++    ISX031_OUTSEL_1_SP1_LCG = 1,
++    ISX031_OUTSEL_1_SP2H = 2,
++    ISX031_OUTSEL_1_SP2L = 3
++};
++
++// Remap mode ID numbers
++enum isx031_remap_mode_id {
++    ISX031_REMAP_MODE_STARTUP = 0x00,
++    ISX031_REMAP_MODE_STARTUP_PIXEL_SHADING_COMPENSATION = 0x01,
++    ISX031_REMAP_MODE_STARTUP_GUIDELINE_DISPLAY = 0x02,
++    ISX031_REMAP_MODE_STREAMING = 0x04,
++    ISX031_REMAP_MODE_STREAMING_PIXEL_SHADING_COMPENSATION = 0x05,
++    ISX031_REMAP_MODE_STREAMING_GUIDELINE_DISPLAY = 0x06,
++    ISX031_REMAP_MODE_SLEEP = 0x20,
++    ISX031_REMAP_MODE_HWREG1 = 0x30,
++    ISX031_REMAP_MODE_HWREG2 = 0x31,
++    ISX031_REMAP_MODE_HWREG3 = 0x32,
++    ISX031_REMAP_MODE_HWREG4 = 0x33,
++    ISX031_REMAP_MODE_HWREG5 = 0x34,
++    ISX031_REMAP_MODE_HWREG6 = 0x35,
++    ISX031_REMAP_MODE_HWREG7 = 0x36
++};
++
++#define ISX031_MODE_SET_F_APPLICATION_LOCK 0x53
++
++#define ISX031_REG_MODE_SEL_MASK 0x7FFF
++#define ISX031_REG_MODE_SEL_POS 0
++#define ISX031_REG_MODE_SET_F_MASK 0x1
++#define ISX031_REG_MODE_SET_F_POS 15
++#define ISX031_REG_HORIZONTAL_FLIPPING_MASK 0x1
++#define ISX031_REG_HORIZONTAL_FLIPPING_POS 0
++#define ISX031_REG_VERTICAL_FLIPPING_MASK 0x1
++#define ISX031_REG_VERTICAL_FLIPPING_POS 0
++#define ISX031_REG_IFD_DATATYPE_VISIBLE_MASK 0x3F
++#define ISX031_REG_IFD_DATATYPE_VISIBLE_POS 0
++#define ISX031_REG_IFD_DATATYPE_VISIBLE_CTRLSEL_MASK 0x1
++#define ISX031_REG_IFD_DATATYPE_VISIBLE_CTRLSEL_POS 2
++#define ISX031_REG_HDRON_MASK 0x1
++#define ISX031_REG_HDRON_POS 0
++#define ISX031_REG_OUTSEL_1_MASK 0x3
++#define ISX031_REG_OUTSEL_1_POS 0
++#define ISX031_REG_HDRON_APL_MASK 0x1
++#define ISX031_REG_HDRON_APL_POS 0
++#define ISX031_REG_OUTSEL_1_APL_MASK 0x3
++#define ISX031_REG_OUTSEL_1_APL_POS 0
++
++#endif
+\ No newline at end of file
+diff --git a/include/media/isx031.h b/include/media/isx031.h
+new file mode 100644
+index 000000000000..12cb52608e80
+--- /dev/null
++++ b/include/media/isx031.h
+@@ -0,0 +1,24 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/* Copyright (C) 2014 - 2022 Intel Corporation */
++
++#ifndef __ISX031_H
++#define __ISX031_H
++
++#include <linux/types.h>
++
++#define ISX031_NAME		"isx031"
++
++struct isx031_platform_data {
++	unsigned int port;
++	unsigned int lanes;
++	uint32_t i2c_slave_address;
++	int irq_pin;
++	unsigned int irq_pin_flags;
++	char irq_pin_name[16];
++	int reset_pin;
++	int detect_pin;
++	char suffix;
++	int gpios[4];
++};
++
++#endif /* __ISX031_H  */
+-- 
+2.42.0
+

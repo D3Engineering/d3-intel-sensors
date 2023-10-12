@@ -1,0 +1,25 @@
+From cd43af1df7df636852f7c15b48a2225ce689ac9c Mon Sep 17 00:00:00 2001
+From: Josh Watts <jwatts@d3engineering.com>
+Date: Thu, 12 Oct 2023 08:57:58 -0400
+Subject: [PATCH 06/10] media: i2c: imx390: Use 7bit address
+
+---
+ include/media/imx390.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/include/media/imx390.h b/include/media/imx390.h
+index be95249fbe96..5fe5aec0caf1 100644
+--- a/include/media/imx390.h
++++ b/include/media/imx390.h
+@@ -8,7 +8,7 @@
+ 
+ #define IMX390_NAME "imx390"
+ 
+-#define IMX390_D3CM_I2C_ADDRESS (0x21 << 1)
++#define IMX390_D3CM_I2C_ADDRESS (0x21)
+ 
+ struct imx390_platform_data {
+ 	unsigned int port;
+-- 
+2.42.0
+

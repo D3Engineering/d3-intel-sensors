@@ -1,0 +1,212 @@
+From ab5f28fef28cb185105d7c94c5ff0ee9b2aa0887 Mon Sep 17 00:00:00 2001
+From: Josh Watts <jwatts@d3engineering.com>
+Date: Thu, 12 Oct 2023 10:22:08 -0400
+Subject: [PATCH 1/2] Add ISX031 config
+
+---
+ config/linux/ipu6ep/sensors/isx031.xml | 193 +++++++++++++++++++++++++
+ 1 file changed, 193 insertions(+)
+ create mode 100644 config/linux/ipu6ep/sensors/isx031.xml
+
+diff --git a/config/linux/ipu6ep/sensors/isx031.xml b/config/linux/ipu6ep/sensors/isx031.xml
+new file mode 100644
+index 0000000..9b8eaeb
+--- /dev/null
++++ b/config/linux/ipu6ep/sensors/isx031.xml
+@@ -0,0 +1,193 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Copyright (C) 2023 Define Design Deploy Corp. All Rights Reserved.
++
++     Licensed under the Apache License, Version 2.0 (the "License");
++     you may not use this file except in compliance with the License.
++     You may obtain a copy of the License at
++
++          http://www.apache.org/licenses/LICENSE-2.0
++
++     Unless required by applicable law or agreed to in writing, software
++     distributed under the License is distributed on an "AS IS" BASIS,
++     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++     See the License for the specific language governing permissions and
++     limitations under the License.
++-->
++<CameraSettings>
++  <Sensor name="isx031-fpd-0" description="isx031 sensor">
++    <MediaCtlConfig id="0" ConfigMode="AUTO" outputWidth="1920" outputHeight="1536" format="V4L2_PIX_FMT_UYVY">
++      <!-- FE capture -->
++      <format name="isx031 a" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="TI960 a" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="TI960 a" pad="4" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI-2 1" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI-2 1" pad="1" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI2 BE SOC 0" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI2 BE SOC 0" pad="1" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++
++      <link srcName="isx031 a" srcPad="0" sinkName="TI960 a" sinkPad="0" enable="true"/>
++      <link srcName="TI960 a" srcPad="4" sinkName="Intel IPU6 CSI-2 1" sinkPad="0" enable="true"/>
++      <link srcName="Intel IPU6 CSI-2 1" srcPad="1" sinkName="Intel IPU6 CSI2 BE SOC 0" sinkPad="0" enable="true"/>
++      <link srcName="Intel IPU6 CSI2 BE SOC 0" srcPad="1" sinkName="Intel IPU6 BE SOC capture 0" sinkPad="0" enable="true"/>
++
++      <videonode name="Intel IPU6 BE SOC capture 0" videoNodeType="VIDEO_GENERIC"/>
++      <videonode name="Intel IPU6 CSI-2 1" videoNodeType="VIDEO_ISYS_RECEIVER"/>
++      <videonode name="isx031 a" videoNodeType="VIDEO_PIXEL_ARRAY"/>
++    </MediaCtlConfig>
++    <StaticMetadata>
++      <!-- list of stream config info. Meanings of each part is "format,widthxheight,field(0 is none, 7 is alternate),mcId" -->
++      <supportedStreamConfig value="V4L2_PIX_FMT_UYVY,1920x1536,0,0,"/>
++      <fpsRange value="30,60"/>
++    </StaticMetadata>
++    <supportedISysSizes value="1920x1536"/>
++    <!-- ascending order request-->
++    <supportedISysFormat value="V4L2_PIX_FMT_UYVY"/>
++    <enableAIQ value="false"/>
++  </Sensor>
++
++  <Sensor name="isx031-fpd-1" description="isx031 sensor">
++    <MediaCtlConfig id="0" ConfigMode="AUTO" outputWidth="1920" outputHeight="1536" format="V4L2_PIX_FMT_UYVY">
++      <!-- FE capture -->
++      <format name="isx031 b" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="TI960 a" pad="1" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="TI960 a" pad="4" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI-2 1" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI-2 1" pad="1" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI2 BE SOC 0" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI2 BE SOC 0" pad="2" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++
++      <link srcName="isx031 b" srcPad="0" sinkName="TI960 a" sinkPad="1" enable="true"/>
++      <link srcName="TI960 a" srcPad="4" sinkName="Intel IPU6 CSI-2 1" sinkPad="0" enable="true"/>
++      <link srcName="Intel IPU6 CSI-2 1" srcPad="1" sinkName="Intel IPU6 CSI2 BE SOC 0" sinkPad="0" enable="true"/>
++      <link srcName="Intel IPU6 CSI2 BE SOC 0" srcPad="2" sinkName="Intel IPU6 BE SOC capture 1" sinkPad="0" enable="true"/>
++
++      <videonode name="Intel IPU6 BE SOC capture 1" videoNodeType="VIDEO_GENERIC"/>
++      <videonode name="Intel IPU6 CSI-2 1" videoNodeType="VIDEO_ISYS_RECEIVER"/>
++      <videonode name="isx031 b" videoNodeType="VIDEO_PIXEL_ARRAY"/>
++
++    </MediaCtlConfig>
++    <StaticMetadata>
++      <!-- list of stream config info. Meanings of each part is "format,widthxheight,field(0 is none, 7 is alternate),mcId" -->
++      <supportedStreamConfig value="V4L2_PIX_FMT_UYVY,1920x1536,0,0,"/>
++      <fpsRange value="30,60"/>
++    </StaticMetadata>
++    <supportedISysSizes value="1920x1536"/>
++    <!-- ascending order request-->
++    <supportedISysFormat value="V4L2_PIX_FMT_UYVY"/>
++    <enableAIQ value="false"/>
++  </Sensor>
++
++  <Sensor name="isx031-fpd-2" description="isx031 sensor">
++    <MediaCtlConfig id="0" ConfigMode="AUTO" outputWidth="1920" outputHeight="1536" format="V4L2_PIX_FMT_UYVY">
++      <!-- FE capture -->
++      <format name="isx031 c" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="TI960 a" pad="1" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="TI960 a" pad="4" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI-2 1" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI-2 1" pad="1" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI2 BE SOC 0" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI2 BE SOC 0" pad="2" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++
++      <link srcName="isx031 c" srcPad="0" sinkName="TI960 a" sinkPad="1" enable="true"/>
++      <link srcName="TI960 a" srcPad="4" sinkName="Intel IPU6 CSI-2 1" sinkPad="0" enable="true"/>
++      <link srcName="Intel IPU6 CSI-2 1" srcPad="1" sinkName="Intel IPU6 CSI2 BE SOC 0" sinkPad="0" enable="true"/>
++      <link srcName="Intel IPU6 CSI2 BE SOC 0" srcPad="2" sinkName="Intel IPU6 BE SOC capture 1" sinkPad="0" enable="true"/>
++
++      <videonode name="Intel IPU6 BE SOC capture 1" videoNodeType="VIDEO_GENERIC"/>
++      <videonode name="Intel IPU6 CSI-2 1" videoNodeType="VIDEO_ISYS_RECEIVER"/>
++      <videonode name="isx031 c" videoNodeType="VIDEO_PIXEL_ARRAY"/>
++
++    </MediaCtlConfig>
++    <StaticMetadata>
++      <!-- list of stream config info. Meanings of each part is "format,widthxheight,field(0 is none, 7 is alternate),mcId" -->
++      <supportedStreamConfig value="V4L2_PIX_FMT_UYVY,1920x1536,0,0,"/>
++      <fpsRange value="30,60"/>
++    </StaticMetadata>
++    <supportedISysSizes value="1920x1536"/>
++    <!-- ascending order request-->
++    <supportedISysFormat value="V4L2_PIX_FMT_UYVY"/>
++    <enableAIQ value="false"/>
++  </Sensor>
++
++  <Sensor name="isx031-fpd-3" description="isx031 sensor">
++    <MediaCtlConfig id="0" ConfigMode="AUTO" outputWidth="1920" outputHeight="1536" format="V4L2_PIX_FMT_UYVY">
++      <!-- FE capture -->
++      <format name="isx031 d" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="TI960 a" pad="1" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="TI960 a" pad="4" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI-2 1" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI-2 1" pad="1" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI2 BE SOC 0" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI2 BE SOC 0" pad="2" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++
++      <link srcName="isx031 d" srcPad="0" sinkName="TI960 a" sinkPad="1" enable="true"/>
++      <link srcName="TI960 a" srcPad="4" sinkName="Intel IPU6 CSI-2 1" sinkPad="0" enable="true"/>
++      <link srcName="Intel IPU6 CSI-2 1" srcPad="1" sinkName="Intel IPU6 CSI2 BE SOC 0" sinkPad="0" enable="true"/>
++      <link srcName="Intel IPU6 CSI2 BE SOC 0" srcPad="2" sinkName="Intel IPU6 BE SOC capture 1" sinkPad="0" enable="true"/>
++
++      <videonode name="Intel IPU6 BE SOC capture 1" videoNodeType="VIDEO_GENERIC"/>
++      <videonode name="Intel IPU6 CSI-2 1" videoNodeType="VIDEO_ISYS_RECEIVER"/>
++      <videonode name="isx031 d" videoNodeType="VIDEO_PIXEL_ARRAY"/>
++
++    </MediaCtlConfig>
++    <StaticMetadata>
++      <!-- list of stream config info. Meanings of each part is "format,widthxheight,field(0 is none, 7 is alternate),mcId" -->
++      <supportedStreamConfig value="V4L2_PIX_FMT_UYVY,1920x1536,0,0,"/>
++      <fpsRange value="30,60"/>
++    </StaticMetadata>
++    <supportedISysSizes value="1920x1536"/>
++    <!-- ascending order request-->
++    <supportedISysFormat value="V4L2_PIX_FMT_UYVY"/>
++    <enableAIQ value="false"/>
++  </Sensor>
++
++
++
++
++  <Sensor name="isx031" description="isx031 sensor">
++    <MediaCtlConfig id="0" ConfigMode="AUTO" outputWidth="1920" outputHeight="1536" format="V4L2_PIX_FMT_UYVY">
++      <!-- FE capture -->
++      <format name="isx031 b" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI-2 1" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI2 BE SOC 0" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <link srcName="isx031 b" srcPad="0" sinkName="Intel IPU6 CSI-2 1" sinkPad="0" enable="true"/>
++      <link srcName="Intel IPU6 CSI-2 1" srcPad="1" sinkName="Intel IPU6 CSI2 BE SOC 0" sinkPad="0" enable="true"/>
++      <link srcName="Intel IPU6 CSI2 BE SOC 0" srcPad="1" sinkName="Intel IPU6 BE SOC capture 0" sinkPad="0" enable="true"/>
++      <videonode name="Intel IPU6 BE SOC capture 0" videoNodeType="VIDEO_GENERIC"/>
++      <videonode name="Intel IPU6 CSI-2 1" videoNodeType="VIDEO_ISYS_RECEIVER"/>
++      <videonode name="isx031 b" videoNodeType="VIDEO_PIXEL_ARRAY"/>
++    </MediaCtlConfig>
++    <StaticMetadata>
++      <!-- list of stream config info. Meanings of each part is "format,widthxheight,field(0 is none, 7 is alternate),mcId" -->
++      <supportedStreamConfig value="V4L2_PIX_FMT_UYVY,1920x1536,0,0,"/>
++      <fpsRange value="30,60"/>
++    </StaticMetadata>
++    <supportedISysSizes value="1920x1536"/>
++    <!-- ascending order request-->
++    <supportedISysFormat value="V4L2_PIX_FMT_UYVY"/>
++    <enableAIQ value="false"/>
++  </Sensor>
++  <Sensor name="isx031-2" description="isx031 sensor">
++    <MediaCtlConfig id="0" ConfigMode="AUTO" outputWidth="1920" outputHeight="1536" format="V4L2_PIX_FMT_UYVY">
++      <!-- FE capture -->
++      <format name="isx031 c" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI-2 2" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <format name="Intel IPU6 CSI2 BE SOC 1" pad="0" width="1920" height="1536" format="V4L2_MBUS_FMT_UYVY8_1X16"/>
++      <link srcName="isx031 c" srcPad="0" sinkName="Intel IPU6 CSI-2 2" sinkPad="0" enable="true"/>
++      <link srcName="Intel IPU6 CSI-2 2" srcPad="1" sinkName="Intel IPU6 CSI2 BE SOC 1" sinkPad="0" enable="true"/>
++      <link srcName="Intel IPU6 CSI2 BE SOC 1" srcPad="1" sinkName="Intel IPU6 BE SOC 1 capture 0" sinkPad="0" enable="true"/>
++      <videonode name="Intel IPU6 BE SOC 1 capture 0" videoNodeType="VIDEO_GENERIC"/>
++      <videonode name="Intel IPU6 CSI-2 2" videoNodeType="VIDEO_ISYS_RECEIVER"/>
++      <videonode name="isx031 c" videoNodeType="VIDEO_PIXEL_ARRAY"/>
++    </MediaCtlConfig>
++    <StaticMetadata>
++      <!-- list of stream config info. Meanings of each part is "format,widthxheight,field(0 is none, 7 is alternate),mcId" -->
++      <supportedStreamConfig value="V4L2_PIX_FMT_UYVY,1920x1536,0,0,"/>
++      <fpsRange value="30,60"/>
++    </StaticMetadata>
++    <supportedISysSizes value="1920x1536"/>
++    <!-- ascending order request-->
++    <supportedISysFormat value="V4L2_PIX_FMT_UYVY"/>
++    <enableAIQ value="false"/>
++  </Sensor>
++</CameraSettings>
+-- 
+2.42.0
+
