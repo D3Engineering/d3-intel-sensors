@@ -1,0 +1,25 @@
+From 546176fb69c5bcef765d3325541bcaf4f8e9aa24 Mon Sep 17 00:00:00 2001
+From: Josh Watts <jwatts@d3engineering.com>
+Date: Thu, 16 Nov 2023 10:37:47 -0500
+Subject: [PATCH 14/14] media: i2c: imx390: Remove extraneous pm_runtime_put
+
+---
+ drivers/media/i2c/imx390.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/drivers/media/i2c/imx390.c b/drivers/media/i2c/imx390.c
+index d2b55abf1e6a..66719ef72e6f 100644
+--- a/drivers/media/i2c/imx390.c
++++ b/drivers/media/i2c/imx390.c
+@@ -1411,8 +1411,6 @@ static int imx390_set_ctrl(struct v4l2_ctrl *ctrl)
+ 		break;
+ 	}
+ 
+-	pm_runtime_put(&client->dev);
+-
+ 	return ret;
+ }
+ 
+-- 
+2.42.0
+

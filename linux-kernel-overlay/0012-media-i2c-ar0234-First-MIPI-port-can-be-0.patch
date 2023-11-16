@@ -1,0 +1,25 @@
+From 8e0c3913dc812920897b5b3b45f4fc2c25cebeca Mon Sep 17 00:00:00 2001
+From: Josh Watts <jwatts@d3engineering.com>
+Date: Tue, 14 Nov 2023 11:02:01 -0500
+Subject: [PATCH 12/14] media: i2c: ar0234: First MIPI port can be 0
+
+---
+ drivers/media/i2c/ar0234.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/ar0234.c b/drivers/media/i2c/ar0234.c
+index 2328ceeec9a4..e71938b39a62 100644
+--- a/drivers/media/i2c/ar0234.c
++++ b/drivers/media/i2c/ar0234.c
+@@ -1627,7 +1627,7 @@ static struct v4l2_ctrl_config ar0234_csi_port = {
+ 	.id	= AR0234_CID_CSI_PORT,
+ 	.type	= V4L2_CTRL_TYPE_INTEGER,
+ 	.name	= "CSI port",
+-	.min	= 1,
++	.min	= 0,
+ 	.max	= 5,
+ 	.def	= 1,
+ 	.step	= 1,
+-- 
+2.42.0
+

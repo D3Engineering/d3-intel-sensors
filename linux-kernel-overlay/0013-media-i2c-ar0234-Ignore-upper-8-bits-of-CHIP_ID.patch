@@ -1,0 +1,25 @@
+From eea3ec1c89717f05dc174ea91415dcfaa72296cf Mon Sep 17 00:00:00 2001
+From: Josh Watts <jwatts@d3engineering.com>
+Date: Tue, 14 Nov 2023 11:02:37 -0500
+Subject: [PATCH 13/14] media: i2c: ar0234: Ignore upper 8 bits of CHIP_ID
+
+---
+ drivers/media/i2c/ar0234.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/ar0234.c b/drivers/media/i2c/ar0234.c
+index e71938b39a62..9340b5614bc4 100644
+--- a/drivers/media/i2c/ar0234.c
++++ b/drivers/media/i2c/ar0234.c
+@@ -2114,7 +2114,7 @@ static int ar0234_identify_module(struct ar0234 *ar0234)
+ 	if (ret)
+ 		return ret;
+ 
+-	if (val != AR0234_CHIP_ID) {
++	if ((val & 0xFFF) != AR0234_CHIP_ID) {
+ 		dev_err(&client->dev, "chip id mismatch: %x!=%x",
+ 			AR0234_CHIP_ID, val);
+ 		return -ENXIO;
+-- 
+2.42.0
+

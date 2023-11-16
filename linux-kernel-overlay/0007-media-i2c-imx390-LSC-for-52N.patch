@@ -1,7 +1,7 @@
-From 89eae73b6892d4d066635fdae463d70be42b1741 Mon Sep 17 00:00:00 2001
+From 4e38fadfeac63c0d56db9cfa035b682151ebb320 Mon Sep 17 00:00:00 2001
 From: Josh Watts <jwatts@d3engineering.com>
 Date: Wed, 18 Oct 2023 17:24:54 -0400
-Subject: [PATCH 09/10] media: i2c: imx390: LSC for 52N
+Subject: [PATCH 07/14] media: i2c: imx390: LSC for 52N
 
 ---
  drivers/media/i2c/imx390.c         |   7 +
@@ -10,7 +10,7 @@ Subject: [PATCH 09/10] media: i2c: imx390: LSC for 52N
  create mode 100644 drivers/media/i2c/imx390_lsc_52n.h
 
 diff --git a/drivers/media/i2c/imx390.c b/drivers/media/i2c/imx390.c
-index 04013d8a3034..1397e657d925 100644
+index b8b387378622..bc434ec6e099 100644
 --- a/drivers/media/i2c/imx390.c
 +++ b/drivers/media/i2c/imx390.c
 @@ -289,12 +289,14 @@ enum {
@@ -37,7 +37,7 @@ index 04013d8a3034..1397e657d925 100644
  static const s64 link_freq_menu_items[] = {
  	IMX390_LINK_FREQ_360MHZ,
  	IMX390_LINK_FREQ_300MHZ,
-@@ -1337,6 +1341,9 @@ static int imx390_set_lsc_pattern(struct imx390 *self, int val)
+@@ -1349,6 +1353,9 @@ static int imx390_set_lsc_pattern(struct imx390 *self, int val)
  	if (val == LSC_PATTERN_TABLE)
  		ret = imx390_write_reg_list(self, &lsc_vendor_def_list);
  

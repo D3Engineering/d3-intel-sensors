@@ -1,0 +1,45 @@
+From a03b30ebe44ea826c054868a0ba7f59ed935bc98 Mon Sep 17 00:00:00 2001
+From: Josh Watts <jwatts@d3engineering.com>
+Date: Thu, 9 Nov 2023 20:59:42 -0500
+Subject: [PATCH 10/14] media: i2c: imx390: Set CSI lane count
+
+---
+ drivers/media/i2c/ti960-des.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/drivers/media/i2c/ti960-des.c b/drivers/media/i2c/ti960-des.c
+index 7f03032b392c..cd01fbc00022 100644
+--- a/drivers/media/i2c/ti960-des.c
++++ b/drivers/media/i2c/ti960-des.c
+@@ -953,6 +953,14 @@ static int ti960_set_power(struct v4l2_subdev *subdev, int on)
+ 	if (ret)
+ 		return ret;
+ 
++	val &= ~(3u << 4);
++	switch (va->subdev_pdata->lanes) {
++		case 4: val |= 0u << 4; break;
++		case 3: val |= 1u << 4; break;
++		case 2: val |= 2u << 4; break;
++		case 1: val |= 3u << 4; break;
++	}
++
+ 	return ti960_reg_write(va, TI960_CSI_CTL, val);
+ }
+ 
+@@ -1319,6 +1327,13 @@ static int ti960_s_ctrl(struct v4l2_ctrl *ctrl)
+ 
+ 		ti960_reg_write(va, TI960_CSI_PORT_SEL, 0x01);
+ 		ti960_reg_read(va, TI960_CSI_CTL, &val);
++		val &= ~(3u << 4);
++		switch (va->subdev_pdata->lanes) {
++			case 4: val |= 0u << 4; break;
++			case 3: val |= 1u << 4; break;
++			case 2: val |= 2u << 4; break;
++			case 1: val |= 3u << 4; break;
++		}
+ 		if (state) {
+ 			if (ti960_get_nubmer_of_streaming() == 0)
+ 				val |= TI960_CSI_CONTS_CLOCK;
+-- 
+2.42.0
+

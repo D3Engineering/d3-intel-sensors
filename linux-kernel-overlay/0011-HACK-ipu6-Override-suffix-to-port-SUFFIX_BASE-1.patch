@@ -1,0 +1,28 @@
+From bfc2a8693ff555e665b44c2f508906490a97b852 Mon Sep 17 00:00:00 2001
+From: Josh Watts <jwatts@d3engineering.com>
+Date: Thu, 9 Nov 2023 21:02:21 -0500
+Subject: [PATCH 11/14] HACK: ipu6: Override suffix to port+SUFFIX_BASE+1
+
+This ensures that the TI960's suffix starts with 'a' for port '0'
+---
+ drivers/media/platform/intel/ipu6-acpi-pdata.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/media/platform/intel/ipu6-acpi-pdata.c b/drivers/media/platform/intel/ipu6-acpi-pdata.c
+index 87c2aa9402f1..9258e469eece 100644
+--- a/drivers/media/platform/intel/ipu6-acpi-pdata.c
++++ b/drivers/media/platform/intel/ipu6-acpi-pdata.c
+@@ -702,6 +702,10 @@ int set_pdata(struct ipu_isys_subdev_info **sensor_sd,
+ 		else
+ 			pr_err("IPU6 ACPI: Invalid MIPI Port : %d", port);
+ 
++//HACK
++pdata->suffix = port + SUFFIX_BASE + 1;
++
++
+ 		if (!strcmp(sensor_name, IMX390_NAME))
+ 			set_ti960_gpio(ctl_data, &pdata);
+ 
+-- 
+2.42.0
+

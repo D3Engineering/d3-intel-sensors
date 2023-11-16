@@ -1,34 +1,28 @@
 ## Patches
 
-linux-kernel-lts: https://github.com/intel/linux-intel-lts.git
+linux-kernel-overlay: https://github.com/intel/linux-kernel-overlay.git
 
-Patches for linux-kernel-lts should be applied to:
+The patches in `linux-kernel-overlay/*.patch` should integrate on top of:
+
 ```
-commit dfff915012ab62c58f33603bb3eeb3e21027b332 (tag: lts-v5.15.96-linux-230414T064922Z)
-Author: Aravindhan Gunasekaran <aravindhan.gunasekaran@intel.com>
-Date:   Fri Apr 14 10:38:26 2023 +0530
+commit 6d3327e4a10c5a896fbda1c27db2e26e85466a10 (HEAD, tag: mainline-tracking-overlay-v6.3-ubuntu-231016T083329Z)
+Author: sys_oak <sys_oak@intel.com>
+Date:   Mon Oct 16 01:45:35 2023 -0700
 
-    Revert "igc: Fix PPS delta between two synchronized end-points"
+    Auto update to mainline-tracking/v6.3-ubuntu v6.3-231016T083329Z
     
-    This reverts commit cfd5978411edae852636f8a6cd53ea093f292e79.
+    Source of patches:
+    a39c0f3ba quilt: ww41.2 mainline-tracking-linux for v6.3
+    Signed-off-by: sys_oak <sys_oak@intel.com>
 ```
 
 ipu6-camera-hal: https://github.com/intel/ipu6-camera-hal.git
 
-Patches for ipu6-camera-hal should be applied to:
-```
-commit cf18f7de1ec9742aff08005e309edcebf882597a (tag: v1.0.0-adln-mr1)
-Merge: e6925d6 520f484
-Author: zouxiaoh <xiaohong.zou@intel.com>
-Date:   Thu Mar 23 18:25:09 2023 +0800
-
-    Merge pull request #48 from zouxiaoh/iotg_ipu6
-    
-    iotg adl-n mr1 release
-```
-
+TODO: Add ipu6 XML files
 
 ## BIOS setup:
+
+TODO: Update instructions for AR0234
 
 * Intel Advanced Menu ->
 * System Agent (SA) Configuration ->

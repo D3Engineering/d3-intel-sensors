@@ -1,0 +1,102 @@
+From 7a565fa440ee0b92c4950afefc24f784b963866e Mon Sep 17 00:00:00 2001
+From: Josh Watts <jwatts@d3engineering.com>
+Date: Tue, 7 Nov 2023 16:45:03 -0500
+Subject: [PATCH 09/14] ti960: modernize
+
+---
+ drivers/media/i2c/ti953-ser.c |  2 +-
+ drivers/media/i2c/ti960-des.c | 18 +++++++-----------
+ 2 files changed, 8 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/media/i2c/ti953-ser.c b/drivers/media/i2c/ti953-ser.c
+index 2cdc1ab89a2f..1cb07de9180f 100644
+--- a/drivers/media/i2c/ti953-ser.c
++++ b/drivers/media/i2c/ti953-ser.c
+@@ -84,7 +84,7 @@ bool ti953_detect(struct i2c_client *client)
+ 	if (i == ARRAY_SIZE(ti953_FPD3_RX_ID))
+ 		ret = true;
+ 	else
+-		dev_err(sd->dev, "TI953 Probe Failed");
++		dev_err(&client->dev, "TI953 Probe Failed");
+ 
+ 	return ret;
+ }
+diff --git a/drivers/media/i2c/ti960-des.c b/drivers/media/i2c/ti960-des.c
+index 6087764fcc58..7f03032b392c 100644
+--- a/drivers/media/i2c/ti960-des.c
++++ b/drivers/media/i2c/ti960-des.c
+@@ -491,7 +491,7 @@ static int ti960_get_frame_desc(struct v4l2_subdev *sd,
+ 
+ 	if (sink_pad >= 0) {
+ 		struct media_pad *remote_pad =
+-			media_entity_remote_pad(&sd->entity.pads[sink_pad]);
++			media_pad_remote_pad_first(&sd->entity.pads[sink_pad]);
+ 		if (remote_pad) {
+ 			struct v4l2_subdev *rsd = media_entity_to_v4l2_subdev(remote_pad->entity);
+ 
+@@ -969,7 +969,7 @@ static bool ti960_broadcast_mode(struct v4l2_subdev *subdev)
+ 
+ 	for (i = 0; i < NR_OF_TI960_SINK_PADS; i++) {
+ 		struct media_pad *remote_pad =
+-			media_entity_remote_pad(&va->pad[i]);
++			media_pad_remote_pad_first(&va->pad[i]);
+ 
+ 		if (!remote_pad)
+ 			continue;
+@@ -1112,7 +1112,7 @@ static int ti960_set_stream(struct v4l2_subdev *subdev, int enable)
+ 	bitmap_zero(rx_port_enabled, 32);
+ 	for (i = 0; i < NR_OF_TI960_SINK_PADS; i++) {
+ 		struct media_pad *remote_pad =
+-			media_entity_remote_pad(&va->pad[i]);
++			media_pad_remote_pad_first(&va->pad[i]);
+ 
+ 		if (!remote_pad)
+ 			continue;
+@@ -1571,8 +1571,7 @@ static int ti960_gpio_direction_output(struct gpio_chip *chip,
+ 	return 0;
+ }
+ 
+-static int ti960_probe(struct i2c_client *client,
+-			const struct i2c_device_id *devid)
++static int ti960_probe(struct i2c_client *client)
+ {
+ 	struct ti960 *va;
+ 	int i, j, k, l, rval = 0;
+@@ -1695,23 +1694,20 @@ static int ti960_probe(struct i2c_client *client,
+ 		/* restore GPPC_B23 */
+ 		if (gpio_FPD == 0)
+ 			gpio_set_value(va->pdata->FPD_gpio, 0);
+-
+-		devm_gpio_free(&client->dev,
+-			va->pdata->FPD_gpio);
+ 	}
+ 
+ 	dev_err(&client->dev, "%s Probe Failed", va->sd.name);
+ 	return rval;
+ }
+ 
+-static int ti960_remove(struct i2c_client *client)
++static void ti960_remove(struct i2c_client *client)
+ {
+ 	struct v4l2_subdev *subdev = i2c_get_clientdata(client);
+ 	struct ti960 *va = to_ti960(subdev);
+ 	int i;
+ 
+ 	if (!va)
+-		return 0;
++		return;
+ 
+ 	mutex_destroy(&va->mutex);
+ 	v4l2_ctrl_handler_free(&va->ctrl_handler);
+@@ -1746,7 +1742,7 @@ static int ti960_remove(struct i2c_client *client)
+ 
+ 	gpiochip_remove(&va->gc);
+ 
+-	return 0;
++	return;
+ }
+ 
+ #ifdef CONFIG_PM
+-- 
+2.42.0
+

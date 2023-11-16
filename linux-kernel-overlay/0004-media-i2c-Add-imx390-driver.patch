@@ -1,0 +1,48 @@
+From 4354a5be4d59a3305d0a142530da50ce555a2bd0 Mon Sep 17 00:00:00 2001
+From: Spencer Hill <shill@d3engineering.com>
+Date: Fri, 22 Sep 2023 13:31:33 -0400
+Subject: [PATCH 04/14] media: i2c: Add imx390 driver
+
+---
+ drivers/media/i2c/Kconfig  | 12 ++++++++++++
+ drivers/media/i2c/Makefile |  1 +
+ 2 files changed, 13 insertions(+)
+
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index 4901efbcdf97..43298cbf0904 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -227,6 +227,18 @@ config VIDEO_IMX355
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called imx355.
+ 
++config VIDEO_IMX390
++	tristate "Sony IMX390 sensor support"
++	depends on I2C && VIDEO_DEV
++	select MEDIA_CONTROLLER
++	select VIDEO_V4L2_SUBDEV_API
++	help
++	  This is a Video4Linux2 sensor driver for the Sony
++	  IMX390 camera.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called imx390.
++
+ config VIDEO_IMX412
+ 	tristate "Sony IMX412 sensor support"
+ 	depends on OF_GPIO
+diff --git a/drivers/media/i2c/Makefile b/drivers/media/i2c/Makefile
+index 7104d3215d5c..9da95aa2c2f2 100644
+--- a/drivers/media/i2c/Makefile
++++ b/drivers/media/i2c/Makefile
+@@ -48,6 +48,7 @@ obj-$(CONFIG_VIDEO_IMX319) += imx319.o
+ obj-$(CONFIG_VIDEO_IMX334) += imx334.o
+ obj-$(CONFIG_VIDEO_IMX335) += imx335.o
+ obj-$(CONFIG_VIDEO_IMX355) += imx355.o
++obj-$(CONFIG_VIDEO_IMX390) += imx390.o
+ obj-$(CONFIG_VIDEO_IMX412) += imx412.o
+ obj-$(CONFIG_VIDEO_IMX415) += imx415.o
+ obj-$(CONFIG_VIDEO_IR_I2C) += ir-kbd-i2c.o
+-- 
+2.42.0
+

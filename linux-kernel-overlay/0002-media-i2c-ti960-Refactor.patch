@@ -1,7 +1,7 @@
-From f7febc64d12d4276cc5d14a703c3e5f40c6c9d77 Mon Sep 17 00:00:00 2001
+From 108208f64e81ca60bdf17943a92c086fa5a3d3d6 Mon Sep 17 00:00:00 2001
 From: Josh Watts <jwatts@d3engineering.com>
 Date: Wed, 11 Oct 2023 09:24:19 -0400
-Subject: [PATCH 03/10] media: i2c: ti960: Refactor
+Subject: [PATCH 02/14] media: i2c: ti960: Refactor
 
 - Use i2c dummy instead of manipulating i2c_client
 - Dynamic slave aliases
@@ -13,7 +13,7 @@ Subject: [PATCH 03/10] media: i2c: ti960: Refactor
  3 files changed, 250 insertions(+), 120 deletions(-)
 
 diff --git a/drivers/media/i2c/ti953-ser.c b/drivers/media/i2c/ti953-ser.c
-index 7e0d13e66a5d..0dadf2249dee 100644
+index 8d0399c818bb..2cdc1ab89a2f 100644
 --- a/drivers/media/i2c/ti953-ser.c
 +++ b/drivers/media/i2c/ti953-ser.c
 @@ -19,18 +19,12 @@
@@ -102,7 +102,7 @@ index 7e0d13e66a5d..0dadf2249dee 100644
  			break;
  		}
  		if (val != ti953_FPD3_RX_ID[i].val_expected)
-@@ -102,35 +87,31 @@ bool ti953_detect(struct v4l2_subdev *sd, unsigned short rx_port, unsigned short
+@@ -104,35 +89,31 @@ bool ti953_detect(struct v4l2_subdev *sd, unsigned short rx_port, unsigned short
  	return ret;
  }
  
@@ -171,7 +171,7 @@ index 545bba0a75fb..66f2753eafe3 100644
  
  #endif
 diff --git a/drivers/media/i2c/ti960-des.c b/drivers/media/i2c/ti960-des.c
-index 7121de311b43..abf40270f258 100644
+index 1a03bf27a5da..a518829ab9c5 100644
 --- a/drivers/media/i2c/ti960-des.c
 +++ b/drivers/media/i2c/ti960-des.c
 @@ -20,9 +20,22 @@
@@ -614,7 +614,7 @@ index 7121de311b43..abf40270f258 100644
  	}
  	rval = ti960_map_subdevs_addr(va);
  	if (rval)
-@@ -987,12 +1135,7 @@ static int ti960_set_stream(struct v4l2_subdev *subdev, int enable)
+@@ -986,12 +1134,7 @@ static int ti960_set_stream(struct v4l2_subdev *subdev, int enable)
  
  		if (broadcast && sd_idx == -1) {
  			sd_idx = j;
@@ -628,7 +628,7 @@ index 7121de311b43..abf40270f258 100644
  			/* Stream on/off sensor */
  			dev_err(va->sd.dev,
  					"set stream for %s, enable  %d\n",
-@@ -1015,8 +1158,7 @@ static int ti960_set_stream(struct v4l2_subdev *subdev, int enable)
+@@ -1014,8 +1157,7 @@ static int ti960_set_stream(struct v4l2_subdev *subdev, int enable)
  				return rval;
  			}
  			if (va->subdev_pdata[j].module_flags & TI960_FL_RESET) {
@@ -638,7 +638,7 @@ index 7121de311b43..abf40270f258 100644
  				if (rval)
  					return rval;
  			}
-@@ -1046,10 +1188,7 @@ static int ti960_set_stream(struct v4l2_subdev *subdev, int enable)
+@@ -1045,10 +1187,7 @@ static int ti960_set_stream(struct v4l2_subdev *subdev, int enable)
  
  		for (i = 0; i < NR_OF_TI960_SINK_PADS; i++) {
  			if (enable && test_bit(i, rx_port_enabled)) {
@@ -650,7 +650,7 @@ index 7121de311b43..abf40270f258 100644
  				if (rval) {
  					dev_err(va->sd.dev,
  						"Failed to enable frame sync gpio init.\n");
-@@ -1059,8 +1198,7 @@ static int ti960_set_stream(struct v4l2_subdev *subdev, int enable)
+@@ -1058,8 +1197,7 @@ static int ti960_set_stream(struct v4l2_subdev *subdev, int enable)
  				if (va->subdev_pdata[i].module_flags & TI960_FL_RESET) {
  					rx_port = va->sub_devs[i].rx_port;
  					ser_alias = va->sub_devs[i].ser_i2c_addr;
@@ -660,7 +660,7 @@ index 7121de311b43..abf40270f258 100644
  					if (rval)
  						return rval;
  				}
-@@ -1081,14 +1219,6 @@ static int ti960_set_stream(struct v4l2_subdev *subdev, int enable)
+@@ -1080,14 +1218,6 @@ static int ti960_set_stream(struct v4l2_subdev *subdev, int enable)
  				return rval;
  			}
  		}
@@ -675,7 +675,7 @@ index 7121de311b43..abf40270f258 100644
  	}
  
  	return 0;
-@@ -1133,8 +1263,7 @@ static int ti960_set_stream_vc(struct ti960 *va, u8 vc_id, u8 state)
+@@ -1132,8 +1262,7 @@ static int ti960_set_stream_vc(struct ti960 *va, u8 vc_id, u8 state)
  		return rval;
  	}
  	if (va->subdev_pdata[i].module_flags & TI960_FL_RESET) {
@@ -685,7 +685,7 @@ index 7121de311b43..abf40270f258 100644
  		if (rval)
  			return rval;
  	}
-@@ -1501,6 +1630,12 @@ static int ti960_probe(struct i2c_client *client,
+@@ -1526,6 +1655,12 @@ static int ti960_probe(struct i2c_client *client,
  			gpio_set_value(va->pdata->FPD_gpio, 1);
  	}
  
@@ -698,7 +698,7 @@ index 7121de311b43..abf40270f258 100644
  	rval = ti960_init(va);
  	if (rval) {
  		dev_err(&client->dev, "Failed to init TI960!\n");
-@@ -1561,8 +1696,24 @@ static int ti960_remove(struct i2c_client *client)
+@@ -1588,8 +1723,24 @@ static int ti960_remove(struct i2c_client *client)
  				v4l2_get_subdevdata(va->sub_devs[i].sd);
  
  			i2c_unregister_device(sub_client);
