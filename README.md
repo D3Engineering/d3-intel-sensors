@@ -134,9 +134,9 @@ Date:   Thu Mar 23 18:25:09 2023 +0800
     * Privacy LED: Disabled
     * Rotation: 0
     * Camera module name: YHCE
-    * MIPI port: 2
-    * LaneUsed: x2
-    * PortSpeed: 2
+    * MIPI port: 1
+    * LaneUsed: x4
+    * PortSpeed: 5
     * MCLK: 19200000
     * EEPROM Type: ROM_NON
     * VCM Type: VCM_NONE
@@ -204,7 +204,7 @@ export GST_PLUGIN_PATH=/usr/lib/gstreamer-1.0/
 
 ### CIC + IMX390 Discovery
 
-Before streaming, set TI960 link_freq to 600MHz: `v4l2-ctl -d  /dev/v4l-subdev11 -c v4l2_cid_link_freq=2`
+Before streaming, set TI960 link_freq to 600MHz: `v4l2-ctl -z pci:pci0000:00 -d "TI960 b" -c v4l2_cid_link_freq=2`
 
 * `gst-launch-1.0 icamerasrc device-name=isx031-fpd-0 ! 'video/x-raw,format=UYVY,width=1920,height=1536' ! videoconvert ! xvimagesink`
 * `gst-launch-1.0 icamerasrc device-name=isx031-fpd-1 ! 'video/x-raw,format=UYVY,width=1920,height=1536' ! videoconvert ! xvimagesink`
@@ -213,7 +213,7 @@ Before streaming, set TI960 link_freq to 600MHz: `v4l2-ctl -d  /dev/v4l-subdev11
 
 ### CIC + IMX390 Discovery
 
-Before streaming, set TI960 link_freq to 600MHz: `v4l2-ctl -d  /dev/v4l-subdev11 -c v4l2_cid_link_freq=2`
+Before streaming, set TI960 link_freq to 600MHz: `v4l2-ctl -z pci:pci0000:00 -d "TI960 b" -c v4l2_cid_link_freq=2`
 
 * `gst-launch-1.0 icamerasrc device-name=imx390 ! 'video/x-raw,format=NV12,width=1920,height=1200' ! videoconvert ! xvimagesink`
 * `gst-launch-1.0 icamerasrc device-name=imx390-2 ! 'video/x-raw,format=NV12,width=1920,height=1200' ! videoconvert ! xvimagesink`
